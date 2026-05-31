@@ -59,6 +59,7 @@ jobs:
           DB_PASSWORD: postgres
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-test-secret-minimum-32-characters-long
+          UPLOADS_DIR: /tmp/autocheck-uploads
         run: ./gradlew test --no-daemon
 
       - name: Build Docker image
