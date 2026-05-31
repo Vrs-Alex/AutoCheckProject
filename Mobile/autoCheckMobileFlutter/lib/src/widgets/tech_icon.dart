@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+/// Типы доступных иконок в системе.
+/// Соответствуют файлам в папке assets/icons/.
 enum TechIconType {
   activity,
   alert,
@@ -27,24 +29,22 @@ enum TechIconType {
   user,
 }
 
-/// Единая точка подключения SVG-иконок из assets/icons.
-///
-/// Иконки скачаны из публичной библиотеки Lucide и подключены через
-/// flutter_svg, чтобы Flutter не падал из-за отсутствующих ассетов.
+/// Универсальный виджет для отображения SVG-иконок из набора Lucide
 class TechIcon extends StatelessWidget {
   const TechIcon(
-    this.type, {
-    this.color,
-    this.size = 22,
-    super.key,
-  });
+      this.type, {
+        this.color,
+        this.size = 22, // Стандартный размер иконки
+        super.key,
+      });
 
-  final TechIconType type;
-  final Color? color;
-  final double size;
+  final TechIconType type; // Тип иконки (ключ для маппинга пути к файлу)
+  final Color? color;      // Опциональный цвет иконки
+  final double size;       // Размер стороны квадрата иконки
 
   @override
   Widget build(BuildContext context) {
+    // Определение финального цвета
     final iconColor = color ?? IconTheme.of(context).color ?? Colors.white;
 
     return SizedBox.square(
@@ -61,6 +61,7 @@ class TechIcon extends StatelessWidget {
   }
 }
 
+/// Маппинг типов иконок на пути к SVG-файлам в проекте.
 const _iconAssets = <TechIconType, String>{
   TechIconType.activity: 'assets/icons/activity.svg',
   TechIconType.alert: 'assets/icons/alert.svg',

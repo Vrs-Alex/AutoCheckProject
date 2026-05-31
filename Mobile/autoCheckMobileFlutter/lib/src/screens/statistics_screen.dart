@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../models/submission.dart';
-import '../services/app_logger.dart';
-import '../services/backend_repository.dart';
-import '../theme/app_theme.dart';
-import '../widgets/app_chrome.dart';
-import '../widgets/tech_components.dart';
-import '../widgets/tech_icon.dart';
+import '../models/submission.dart'; // Модели статистики
+import '../services/app_logger.dart'; // Логирование
+import '../services/backend_repository.dart'; // API запросы
+import '../theme/app_theme.dart'; // Стили
+import '../widgets/app_chrome.dart'; // Оболочка приложения
+import '../widgets/tech_components.dart'; // Карточки метрик, панели
+import '../widgets/tech_icon.dart'; // Иконки
 
+/// Экран общей статистики и аналитики (Telemetry).
+///
+/// Отображает:
+/// 1. KPI метрики (всего проверок, средний балл, pass rate).
+/// 2. График динамики проверок за последние дни (бар-чарт).
+/// 3. Рейтинг лучших кандидатов (Top List).
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
 
@@ -26,6 +32,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     _future = _load();
   }
 
+  /// Загружает агрегированные данные статистики с бэкенда.
   Future<StatisticsData> _load() async {
     AppLogger.info('StatisticsScreen', 'Statistics load started');
     final data = await _repository.statistics();
@@ -36,12 +43,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   Widget build(BuildContext context) {
     return AppChrome(
-      selected: 'statistics',
+      selected: 'statistics', // Подсветка пункта меню
       onDashboard: () => Navigator.of(context).popUntil((route) => route.isFirst),
       onStatistics: () {},
       child: FutureBuilder<StatisticsData>(
         future: _future,
         builder: (context, snapshot) {
+          // Обработка ошибки загрузки
           if (snapshot.hasError) {
             return TechPanel(
               child: Column(
@@ -65,6 +73,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             );
           }
 
+          // Состояние загрузки
           if (!snapshot.hasData) {
             return const TechPanel(
               child: SizedBox(
@@ -77,6 +86,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           }
 
           final data = snapshot.data!;
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -89,14 +99,21 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 style: TextStyle(color: AppColors.muted, fontSize: 16, height: 1.55),
               ),
               const SizedBox(height: 48),
+
+              // Сетка с основными KPI
               _MetricGrid(stats: data.stats),
               const SizedBox(height: 32),
+
+              // Адаптивная область: График + Рейтинг
               LayoutBuilder(
                 builder: (context, constraints) {
                   final wide = constraints.maxWidth >= 980;
+
                   final chart = _DailyChart(items: data.dailyCounts);
                   final ranking = _TopCandidates(items: data.topCandidates);
+
                   if (!wide) {
+                    // Мобильная верстка: вертикальный стек
                     return Column(
                       children: [
                         chart,
@@ -105,6 +122,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       ],
                     );
                   }
+
+                  // Десктопная верстка: ряд (График шире, рейтинг уже)
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -123,6 +142,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 }
 
+// ============================================================================
+// Внутренние виджеты статистики
+// ============================================================================
+
+/// Сетка карточек с ключевыми метриками (KPI).
+/// Адаптирует количество колонок под ширину экрана (1, 2 или 3).
 class _MetricGrid extends StatelessWidget {
   const _MetricGrid({required this.stats});
 
@@ -131,19 +156,38 @@ class _MetricGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cards = [
-      MetricCard(icon: TechIconType.chart, label: 'Всего проверок', value: stats.total.toString(), delta: 'backend total'),
-      MetricCard(icon: TechIconType.activity, label: 'Средний балл', value: stats.averageScore.toString(), delta: 'done only'),
-      MetricCard(icon: TechIconType.shield, label: 'Процент прохождения', value: '${stats.passRate.toStringAsFixed(1)}%', delta: 'accepted / total'),
+      MetricCard(
+          icon: TechIconType.chart,
+          label: 'Всего проверок',
+          value: stats.total.toString(),
+          delta: 'backend total'
+      ),
+      MetricCard(
+          icon: TechIconType.activity,
+          label: 'Средний балл',
+          value: stats.averageScore.toString(),
+          delta: 'done only'
+      ),
+      MetricCard(
+          icon: TechIconType.shield,
+          label: 'Процент прохождения',
+          value: '${stats.passRate.toStringAsFixed(1)}%',
+          delta: 'accepted / total'
+      ),
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Определение количества колонок
         final columns = constraints.maxWidth >= 920
             ? 3
             : constraints.maxWidth >= 620
-                ? 2
-                : 1;
+            ? 2
+            : 1;
+
+        // Расчет ширины карточки с учетом отступов
         final cardWidth = (constraints.maxWidth - (columns - 1) * 20) / columns;
+
         return Wrap(
           spacing: 20,
           runSpacing: 20,
@@ -154,6 +198,8 @@ class _MetricGrid extends StatelessWidget {
   }
 }
 
+/// Кастомный столбчатый график (Bar Chart) динамики проверок.
+/// Реализован через Flexbox (Row/Column) без внешних библиотек.
 class _DailyChart extends StatelessWidget {
   const _DailyChart({required this.items});
 
@@ -161,8 +207,12 @@ class _DailyChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Берем только последние 14 дней для наглядности
     final visible = items.take(14).toList();
+
+    // Находим максимальное значение для масштабирования высоты столбцов
     final maxCount = visible.fold<int>(1, (max, item) => item.count > max ? item.count : max);
+
     return TechPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,36 +222,47 @@ class _DailyChart extends StatelessWidget {
           Text('Динамика проверок', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 28),
           SizedBox(
-            height: 260,
+            height: 260, // Фиксированная высота области графика
             child: visible.isEmpty
                 ? const Center(child: Text('Пока нет данных', style: TextStyle(color: AppColors.muted)))
                 : Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: visible.map((item) {
-                      final height = 28 + (item.count / maxCount) * 190;
-                      return Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 5),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Text(item.count.toString(), style: TechText.label.copyWith(color: AppColors.text)),
-                              const SizedBox(height: 8),
-                              Container(
-                                height: height,
-                                decoration: BoxDecoration(
-                                  color: AppColors.accent.withOpacity(0.18),
-                                  border: Border.all(color: AppColors.accent.withOpacity(0.55)),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(item.date.length >= 5 ? item.date.substring(item.date.length - 5) : item.date, style: TechText.label),
-                            ],
+              crossAxisAlignment: CrossAxisAlignment.end, // Выравнивание по низу
+              children: visible.map((item) {
+                // Расчет высоты столбца в процентах от максимума
+                // Минимальная высота 28px, максимальная ~218px
+                final height = 28 + (item.count / maxCount) * 190;
+
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        // Значение над столбцом
+                        Text(item.count.toString(), style: TechText.label.copyWith(color: AppColors.text)),
+                        const SizedBox(height: 8),
+
+                        // Сам столбец
+                        Container(
+                          height: height,
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withOpacity(0.18),
+                            border: Border.all(color: AppColors.accent.withOpacity(0.55)),
                           ),
                         ),
-                      );
-                    }).toList(),
+                        const SizedBox(height: 8),
+
+                        // Дата под столбцом (обрезаем год, оставляем MM-DD)
+                        Text(
+                            item.date.length >= 5 ? item.date.substring(item.date.length - 5) : item.date,
+                            style: TechText.label
+                        ),
+                      ],
+                    ),
                   ),
+                );
+              }).toList(),
+            ),
           ),
         ],
       ),
@@ -209,6 +270,7 @@ class _DailyChart extends StatelessWidget {
   }
 }
 
+/// Список топ-кандидатов с лучшим результатом.
 class _TopCandidates extends StatelessWidget {
   const _TopCandidates({required this.items});
 
@@ -224,25 +286,39 @@ class _TopCandidates extends StatelessWidget {
           const SizedBox(height: 10),
           Text('Топ кандидатов', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 24),
+
           if (items.isEmpty)
             const Text('Пока нет кандидатов', style: TextStyle(color: AppColors.muted))
           else
             ...items.take(10).map((candidate) {
+              // Индекс для отображения места (01, 02, 03...)
               final index = items.indexOf(candidate) + 1;
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: AppColors.panelDeep, border: Border.all(color: AppColors.border)),
+                decoration: BoxDecoration(
+                    color: AppColors.panelDeep,
+                    border: Border.all(color: AppColors.border)
+                ),
                 child: Row(
                   children: [
-                    Text(index.toString().padLeft(2, '0'), style: TechText.label.copyWith(color: AppColors.accent)),
+                    // Номер места
+                    Text(
+                        index.toString().padLeft(2, '0'),
+                        style: TechText.label.copyWith(color: AppColors.accent)
+                    ),
                     const SizedBox(width: 14),
+
+                    // Имя кандидата
                     Expanded(
                       child: Text(
                         candidate.fullName,
                         style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w800),
                       ),
                     ),
+
+                    // Лучший балл (цвет зависит от величины)
                     Text(
                       candidate.bestScore.toStringAsFixed(1),
                       style: TextStyle(

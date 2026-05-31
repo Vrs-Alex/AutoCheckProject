@@ -13,6 +13,7 @@ class AppColors {
   static const border = Color(0x14FFFFFF);
   static const accent = Color(0xFF00FF66);
   static const danger = Color(0xFFFF5500);
+  static const orange = Color(0xFFFF7A3D);
 }
 
 class AppTheme {

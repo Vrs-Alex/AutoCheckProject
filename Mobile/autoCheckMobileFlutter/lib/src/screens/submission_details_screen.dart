@@ -2,16 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../models/submission.dart';
-import '../services/app_logger.dart';
-import '../services/formatters.dart';
-import '../services/backend_repository.dart';
-import '../theme/app_theme.dart';
-import '../widgets/app_chrome.dart';
-import '../widgets/tech_components.dart';
-import '../widgets/tech_icon.dart';
+import '../models/submission.dart'; // Модели данных
+import '../services/app_logger.dart'; // Логирование
+import '../services/formatters.dart'; // Форматирование дат/чисел
+import '../services/backend_repository.dart'; // API запросы
+import '../theme/app_theme.dart'; // Стили
+import '../widgets/app_chrome.dart'; // Оболочка приложения
+import '../widgets/tech_components.dart'; // UI компоненты
+import '../widgets/tech_icon.dart'; // Иконки
 
-/// Карточка проверки: score, checker matrix, timeline, AI review и вердикт.
+/// Экран деталей проверки (Submission Details).
+///
+/// Отображает полную информацию о решении кандидата:
+/// 1. Итоговый балл и статус.
+/// 2. Детализацию по каждому чекеру (матрица результатов).
+/// 3. Хронологию событий (таймлайн пайплайна).
+/// 4. AI-анализ кода (плюсы и минусы).
+/// 5. Возможность принять/отклонить решение или перезапустить проверку.
 class SubmissionDetailsScreen extends StatefulWidget {
   const SubmissionDetailsScreen({
     required this.submissionId,
@@ -28,38 +35,44 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
   final _repository = BackendRepository.instance;
 
   late Future<_DetailsData> _future;
-  Timer? _pollTimer;
-  bool _rerunLoading = false;
+  Timer? _pollTimer; // Таймер для периодического опроса статуса
+  bool _rerunLoading = false; // Флаг загрузки при перезапуске проверки
 
   @override
   void initState() {
     super.initState();
     _future = _load();
-    _startPolling();
+    _startPolling(); // Запуск автообновления
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _pollTimer?.cancel(); // Очистка таймера при уходе с экрана
     super.dispose();
   }
 
+  /// Запускает периодический опрос сервера каждые 3 секунды.
+  /// Используется для отслеживания статуса RUNNING/PENDING в реальном времени.
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    _pollTimer = Timer.periodic(Duration(seconds: 3), (_) {
       if (!mounted) return;
       setState(() => _future = _load());
     });
   }
 
+  /// Загружает все данные для экрана: сабмишн, результаты чекеров, AI-отзыв и таймлайн.
   Future<_DetailsData> _load() async {
     final submission = await _repository.submissionById(widget.submissionId);
     final results = await _repository.results(widget.submissionId);
     final review = await _loadAiReview();
     final timeline = await _repository.timeline(submission);
+
+    // Если проверка завершена (не pending и не running), останавливаем поллинг
     if (submission.status != SubmissionStatus.pending && submission.status != SubmissionStatus.running) {
       _pollTimer?.cancel();
     }
+
     return _DetailsData(
       review: review,
       results: results,
@@ -68,12 +81,13 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
     );
   }
 
+  /// Загружает AI-отзыв. При ошибке возвращает заглушку, чтобы не ломать UI.
   Future<AiReview> _loadAiReview() async {
     try {
       return await _repository.aiReview(widget.submissionId);
     } catch (error) {
       AppLogger.error('SubmissionDetailsScreen', 'AI review load failed', error);
-      return const AiReview(
+      return AiReview(
         summary: 'AI-анализ недоступен: backend не вернул рекомендации.',
         good: [],
         improvements: [],
@@ -81,12 +95,15 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
     }
   }
 
+  /// Перезапускает процесс проверки на сервере.
   Future<void> _rerun() async {
     setState(() => _rerunLoading = true);
     try {
       AppLogger.info('SubmissionDetailsScreen', 'Rerun requested', {'submissionId': widget.submissionId});
       await _repository.rerun(widget.submissionId);
       AppLogger.debug('SubmissionDetailsScreen', 'Rerun completed', {'submissionId': widget.submissionId});
+
+      // После перезапуска снова включаем поллинг для отслеживания прогресса
       _startPolling();
       setState(() => _future = _load());
     } catch (error) {
@@ -96,12 +113,15 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
     }
   }
 
+  /// Обновляет вердикт эксперта (Принят/Отклонен) с комментарием.
   Future<void> _updateVerdict(Verdict verdict) async {
+    // Диалог ввода комментария
     final comment = await showDialog<String>(
       context: context,
       builder: (_) => _VerdictDialog(verdict: verdict),
     );
-    if (comment == null) return;
+
+    if (comment == null) return; // Пользователь отменил действие
 
     try {
       AppLogger.info(
@@ -109,16 +129,20 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
         'Verdict update started',
         {'submissionId': widget.submissionId, 'verdict': verdict.name},
       );
+
       await _repository.updateVerdict(widget.submissionId, verdict, comment);
+
       AppLogger.debug(
         'SubmissionDetailsScreen',
         'Verdict update completed',
         {'submissionId': widget.submissionId, 'verdict': verdict.name, 'comment': comment},
       );
-      setState(() => _future = _load());
+
+      setState(() => _future = _load()); // Обновляем UI
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Вердикт сохранен')),
+        SnackBar(content: Text('Вердикт сохранен')),
       );
     } catch (error) {
       AppLogger.error('SubmissionDetailsScreen', 'Verdict update failed', error);
@@ -129,24 +153,26 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
   Widget build(BuildContext context) {
     return AppChrome(
       onDashboard: () {
+        // Возврат на главную (очищаем стек навигации до корня)
         Navigator.of(context).popUntil((route) => route.isFirst);
       },
       selected: 'details',
       child: FutureBuilder<_DetailsData>(
         future: _future,
         builder: (context, snapshot) {
+          // Обработка ошибки загрузки
           if (snapshot.hasError) {
             return TechPanel(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const TechLabel('Backend error'),
-                  const SizedBox(height: 12),
+                  TechLabel('Backend error'),
+                  SizedBox(height: 12),
                   Text(
                     snapshot.error.toString().replaceFirst('Exception: ', ''),
-                    style: const TextStyle(color: Color(0xFFFF7A3D), height: 1.45),
+                    style: TextStyle(color: Color(0xFFFF7A3D), height: 1.45),
                   ),
-                  const SizedBox(height: 20),
+                  SizedBox(height: 20),
                   TechButton(
                     icon: TechIconType.refresh,
                     label: 'Повторить',
@@ -158,8 +184,9 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
             );
           }
 
+          // Состояние загрузки
           if (!snapshot.hasData) {
-            return const TechPanel(
+            return TechPanel(
               child: SizedBox(
                 height: 220,
                 child: Center(
@@ -173,9 +200,11 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
           }
 
           final data = snapshot.data!;
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Верхняя панель с информацией и кнопками действий
               _DetailsHeader(
                 loading: _rerunLoading,
                 onAccept: () => _updateVerdict(Verdict.accepted),
@@ -196,30 +225,37 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
                 onRerun: _rerun,
                 submission: data.submission,
               ),
-              const SizedBox(height: 64),
+              SizedBox(height: 64),
+
+              // Основной контент: адаптивная сетка
               LayoutBuilder(
                 builder: (context, constraints) {
                   final wide = constraints.maxWidth >= 980;
+
+                  // Левая колонка: Балл и Таймлайн
                   final left = Column(
                     children: [
                       _ScoreCard(submission: data.submission),
-                      const SizedBox(height: 28),
+                      SizedBox(height: 28),
                       _TimelinePanel(events: data.timeline),
                     ],
                   );
+
+                  // Правая колонка: Результаты чекеров и AI
                   final right = Column(
                     children: [
                       _ResultsPanel(results: data.results),
-                      const SizedBox(height: 28),
+                      SizedBox(height: 28),
                       _AiPanel(review: data.review),
                     ],
                   );
 
+                  // Раскладка: вертикальная на мобильных, горизонтальная на десктопе
                   if (!wide) {
                     return Column(
                       children: [
                         left,
-                        const SizedBox(height: 28),
+                        SizedBox(height: 28),
                         right,
                       ],
                     );
@@ -229,7 +265,7 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SizedBox(width: 380, child: left),
-                      const SizedBox(width: 32),
+                      SizedBox(width: 32),
                       Expanded(child: right),
                     ],
                   );
@@ -243,6 +279,11 @@ class _SubmissionDetailsScreenState extends State<SubmissionDetailsScreen> {
   }
 }
 
+// ============================================================================
+// Внутренние виджеты экрана деталей
+// ============================================================================
+
+/// Верхняя панель с именем кандидата, названием задания и кнопками действий.
 class _DetailsHeader extends StatelessWidget {
   const _DetailsHeader({
     required this.loading,
@@ -265,6 +306,7 @@ class _DetailsHeader extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 820;
+
         final title = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -318,7 +360,7 @@ class _DetailsHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               title,
-              const SizedBox(height: 26),
+              SizedBox(height: 26),
               buttons,
             ],
           );
@@ -328,7 +370,7 @@ class _DetailsHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: title),
-            const SizedBox(width: 32),
+            SizedBox(width: 32),
             buttons,
           ],
         );
@@ -337,6 +379,7 @@ class _DetailsHeader extends StatelessWidget {
   }
 }
 
+/// Карточка с итоговым баллом.
 class _ScoreCard extends StatelessWidget {
   const _ScoreCard({required this.submission});
 
@@ -350,7 +393,7 @@ class _ScoreCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Expanded(child: TechLabel('Итоговый балл')),
+              Expanded(child: TechLabel('Итоговый балл')),
               Container(
                 height: 50,
                 width: 50,
@@ -359,7 +402,7 @@ class _ScoreCard extends StatelessWidget {
                   color: AppColors.accent.withOpacity(0.05),
                   border: Border.all(color: AppColors.accent.withOpacity(0.3)),
                 ),
-                child: const TechIcon(
+                child: TechIcon(
                   TechIconType.shield,
                   color: AppColors.accent,
                   size: 25,
@@ -367,36 +410,36 @@ class _ScoreCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 26),
+          SizedBox(height: 26),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
                 submission.score?.toString() ?? '--',
                 style: TechText.monoValue.copyWith(
-                  color: scoreColor(submission.score),
+                  color: scoreColor(submission.score), // Цвет зависит от балла
                   fontSize: 58,
                 ),
               ),
-              const SizedBox(width: 10),
-              const Padding(
+              SizedBox(width: 10),
+              Padding(
                 padding: EdgeInsets.only(bottom: 9),
                 child: Text('/ 100', style: TextStyle(color: AppColors.dim)),
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          SizedBox(height: 22),
           Text(
             submission.assignmentTitle,
             style: Theme.of(context).textTheme.titleLarge,
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: 14),
           Row(
             children: [
               Expanded(
                 child: Text(
                   submission.candidateName,
-                  style: const TextStyle(color: AppColors.muted),
+                  style: TextStyle(color: AppColors.muted),
                 ),
               ),
               StatusBadge(status: submission.status),
@@ -408,8 +451,9 @@ class _ScoreCard extends StatelessWidget {
   }
 }
 
+/// Панель хронологии событий пайплайна.
 class _TimelinePanel extends StatelessWidget {
-  const _TimelinePanel({required this.events});
+  _TimelinePanel({required this.events});
 
   final List<TimelineEvent> events;
 
@@ -419,40 +463,41 @@ class _TimelinePanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TechLabel('Pipeline events'),
-          const SizedBox(height: 10),
+          TechLabel('Pipeline events'),
+          SizedBox(height: 10),
           Text('Хронология', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           ...events.map((event) {
+            // Выбор цвета точки в зависимости от тона события
             final color = switch (event.tone) {
               TimelineTone.done => AppColors.accent,
               TimelineTone.active => AppColors.danger,
               TimelineTone.muted => AppColors.dim,
             };
             return Padding(
-              padding: const EdgeInsets.only(bottom: 18),
+              padding: EdgeInsets.only(bottom: 18),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    margin: const EdgeInsets.only(top: 5),
+                    margin: EdgeInsets.only(top: 5),
                     height: 10,
                     width: 10,
                     color: color,
                   ),
-                  const SizedBox(width: 14),
+                  SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           event.label,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.text,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: 4),
                         Text(
                           formatDateTime(event.time),
                           style: TechText.label,
@@ -470,6 +515,7 @@ class _TimelinePanel extends StatelessWidget {
   }
 }
 
+/// Панель с результатами работы чекеров.
 class _ResultsPanel extends StatelessWidget {
   const _ResultsPanel({required this.results});
 
@@ -481,10 +527,10 @@ class _ResultsPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TechLabel('Checker matrix'),
-          const SizedBox(height: 10),
+          TechLabel('Checker matrix'),
+          SizedBox(height: 10),
           Text('Детализация проверок', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 26),
+          SizedBox(height: 26),
           ...results.map((result) => _ResultCard(result: result)),
         ],
       ),
@@ -492,6 +538,7 @@ class _ResultsPanel extends StatelessWidget {
   }
 }
 
+/// Карточка одного чекера (аккордеон).
 class _ResultCard extends StatefulWidget {
   const _ResultCard({required this.result});
 
@@ -502,13 +549,13 @@ class _ResultCard extends StatefulWidget {
 }
 
 class _ResultCardState extends State<_ResultCard> {
-  bool _open = false;
+  bool _open = false; // Состояние раскрытия лога
 
   @override
   Widget build(BuildContext context) {
     final result = widget.result;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: AppColors.panelDeep,
         border: Border.all(color: AppColors.border),
@@ -518,9 +565,10 @@ class _ResultCardState extends State<_ResultCard> {
           InkWell(
             onTap: () => setState(() => _open = !_open),
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: EdgeInsets.all(18),
               child: Row(
                 children: [
+                  // Иконка стрелки
                   Container(
                     height: 38,
                     width: 38,
@@ -535,14 +583,14 @@ class _ResultCardState extends State<_ResultCard> {
                       size: 18,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           result.checker,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.text,
                             fontFamily: 'monospace',
                             fontSize: 14,
@@ -550,16 +598,16 @@ class _ResultCardState extends State<_ResultCard> {
                             letterSpacing: 1.6,
                           ),
                         ),
-                        const SizedBox(height: 5),
+                        SizedBox(height: 5),
                         Text(
                           result.message,
-                          style: const TextStyle(color: AppColors.muted),
+                          style: TextStyle(color: AppColors.muted),
                         ),
                       ],
                     ),
                   ),
                   StatusBadge(checkerStatus: result.status),
-                  const SizedBox(width: 14),
+                  SizedBox(width: 14),
                   Text(
                     result.score.toString(),
                     style: TextStyle(
@@ -573,16 +621,17 @@ class _ResultCardState extends State<_ResultCard> {
               ),
             ),
           ),
+          // Раскрывающийся блок с логом
           if (_open)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: const BoxDecoration(
+              padding: EdgeInsets.all(18),
+              decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: AppColors.border)),
               ),
               child: Text(
                 result.log,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.muted,
                   fontFamily: 'monospace',
                   height: 1.45,
@@ -595,6 +644,7 @@ class _ResultCardState extends State<_ResultCard> {
   }
 }
 
+/// Панель AI-анализа.
 class _AiPanel extends StatelessWidget {
   const _AiPanel({required this.review});
 
@@ -616,38 +666,39 @@ class _AiPanel extends StatelessWidget {
                   color: AppColors.backgroundAlt,
                   border: Border.all(color: AppColors.border),
                 ),
-                child: const TechIcon(
+                child: TechIcon(
                   TechIconType.bot,
                   color: AppColors.accent,
                   size: 22,
                 ),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: 14),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const TechLabel('AI inspection'),
+                  TechLabel('AI inspection'),
                   Text('AI-анализ', style: Theme.of(context).textTheme.titleLarge),
                 ],
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
+          // Саммари от AI
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(18),
+            padding: EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: AppColors.panelDeep,
               border: Border.all(color: AppColors.border),
             ),
             child: Text(
               review.summary,
-              style: const TextStyle(color: AppColors.muted, height: 1.5),
+              style: TextStyle(color: AppColors.muted, height: 1.5),
             ),
           ),
-          const SizedBox(height: 22),
+          SizedBox(height: 22),
           _AiList(title: 'Что хорошо', items: review.good),
-          const SizedBox(height: 18),
+          SizedBox(height: 18),
           _AiList(title: 'Что улучшить', items: review.improvements),
         ],
       ),
@@ -655,6 +706,7 @@ class _AiPanel extends StatelessWidget {
   }
 }
 
+/// Список пунктов AI-анализа.
 class _AiList extends StatelessWidget {
   const _AiList({
     required this.items,
@@ -670,17 +722,17 @@ class _AiList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TechLabel(title),
-        const SizedBox(height: 10),
+        SizedBox(height: 10),
         ...items.map(
           (item) => Container(
             width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            margin: EdgeInsets.only(bottom: 8),
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: AppColors.panelDeep,
               border: Border.all(color: AppColors.border),
             ),
-            child: Text(item, style: const TextStyle(color: AppColors.muted)),
+            child: Text(item, style: TextStyle(color: AppColors.muted)),
           ),
         ),
       ],
@@ -688,6 +740,11 @@ class _AiList extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// Диалоги
+// ============================================================================
+
+/// Диалог подтверждения вердикта с вводом комментария.
 class _VerdictDialog extends StatefulWidget {
   const _VerdictDialog({required this.verdict});
 
@@ -711,9 +768,9 @@ class _VerdictDialogState extends State<_VerdictDialog> {
     final title = widget.verdict == Verdict.accepted ? 'Принять кандидата' : 'Отклонить кандидата';
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(22),
+      insetPadding: EdgeInsets.all(22),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
+        constraints: BoxConstraints(maxWidth: 520),
         child: TechPanel(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -731,17 +788,17 @@ class _VerdictDialogState extends State<_VerdictDialog> {
                       decoration: BoxDecoration(
                         border: Border.all(color: AppColors.border),
                       ),
-                      child: const TechIcon(TechIconType.close, color: AppColors.muted),
+                      child: TechIcon(TechIconType.close, color: AppColors.muted),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               TextField(
                 controller: _controller,
                 maxLines: 5,
-                style: const TextStyle(color: AppColors.text),
-                decoration: const InputDecoration(
+                style: TextStyle(color: AppColors.text),
+                decoration: InputDecoration(
                   filled: true,
                   fillColor: AppColors.panelDeep,
                   hintText: 'Комментарий к вердикту',
@@ -756,7 +813,7 @@ class _VerdictDialogState extends State<_VerdictDialog> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -765,7 +822,7 @@ class _VerdictDialogState extends State<_VerdictDialog> {
                     onPressed: () => Navigator.of(context).pop(),
                     variant: TechButtonVariant.ghost,
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   TechButton(
                     label: 'Сохранить',
                     onPressed: () => Navigator.of(context).pop(_controller.text),
@@ -780,6 +837,7 @@ class _VerdictDialogState extends State<_VerdictDialog> {
   }
 }
 
+/// Диалог просмотра JSON-отчета.
 class _ReportDialog extends StatelessWidget {
   const _ReportDialog({required this.report});
 
@@ -789,9 +847,9 @@ class _ReportDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(22),
+      insetPadding: EdgeInsets.all(22),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720),
+        constraints: BoxConstraints(maxWidth: 720),
         child: TechPanel(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -807,18 +865,18 @@ class _ReportDialog extends StatelessWidget {
                       width: 38,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(border: Border.all(color: AppColors.border)),
-                      child: const TechIcon(TechIconType.close, color: AppColors.muted),
+                      child: TechIcon(TechIconType.close, color: AppColors.muted),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              SizedBox(height: 18),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 420),
+                constraints: BoxConstraints(maxHeight: 420),
                 child: SingleChildScrollView(
                   child: Text(
                     report,
-                    style: const TextStyle(color: AppColors.muted, fontFamily: 'monospace', height: 1.45),
+                    style: TextStyle(color: AppColors.muted, fontFamily: 'monospace', height: 1.45),
                   ),
                 ),
               ),
@@ -830,6 +888,7 @@ class _ReportDialog extends StatelessWidget {
   }
 }
 
+/// Вспомогательный класс для агрегации данных экрана.
 class _DetailsData {
   const _DetailsData({
     required this.results,

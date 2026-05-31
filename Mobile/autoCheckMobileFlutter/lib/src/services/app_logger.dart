@@ -1,54 +1,66 @@
 import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 
-/// Назначение: единая точка клиентского логирования Flutter-приложения.
+/// AppLogger: Единая точка клиентского логирования Flutter-приложения.
 ///
-/// Ответственность/SRP: форматирует события экранов, репозитория и пользовательских
-/// действий в виде `[Component]: LEVEL Event - Details`, чтобы логи совпадали с
-/// конкурсным требованием DEBUG/INFO/ERROR.
+/// Назначение:
+/// Стандартизирует вывод логов в консоль разработчика, обеспечивая соответствие
+/// требованиям конкурсной документации по форматам DEBUG/INFO/ERROR.
 ///
-/// Дата создания: 31-05-2026.
-/// Автор: Команда.
+/// Формат вывода:
+/// [ComponentName]: LEVEL EventName - Details
 ///
-/// Публичные методы:
-/// - [debug] — пишет диагностические события и успешные API-ответы.
-/// - [info] — пишет жизненный цикл экранов и критичные действия пользователя.
-/// - [error] — пишет ошибки API, валидации и выполнения сценариев.
+/// Примеры:
+/// [DashboardScreen]: INFO ScreenOpened - User: admin
+/// [ApiRepository]: ERROR FetchFailed - TimeoutException
 class AppLogger {
-  const AppLogger._();
+  const AppLogger._(); // Приватный конструктор предотвращает создание экземпляров
 
+  /// Логирование диагностической информации (низкий приоритет).
+  /// Используется для отслеживания успешных API-запросов, внутренних состояний.
   static void debug(String component, String event, [Object? details]) {
     _write('DEBUG', component, event, details);
   }
 
+  /// Логирование важных событий приложения (средний приоритет).
+  /// Используется для навигации между экранами, действий пользователя.
   static void info(String component, String event, [Object? details]) {
     _write('INFO', component, event, details);
   }
 
+  /// Логирование ошибок (высокий приоритет).
+  /// Используется для исключений, ошибок валидации, сбоев сети.
   static void error(String component, String event, [Object? details]) {
     _write('ERROR', component, event, details);
   }
 
+  /// Внутренний метод записи лога в консоль.
   static void _write(
-    String level,
-    String component,
-    String event,
-    Object? details,
-  ) {
+      String level,
+      String component,
+      String event,
+      Object? details,
+      ) {
     final suffix = _normalize(details);
+    // Используем debugPrint вместо print для корректной работы с длинными строками во Flutter
     debugPrint('[$component]: $level $event - $suffix');
   }
 
+  /// Нормализация деталей лога для безопасного вывода.
+  /// Преобразует Map/List в JSON-строку, остальные объекты — в toString().
   static String _normalize(Object? details) {
     if (details == null) return 'No details';
+
+    // Если это коллекция, пытаемся сериализовать в JSON для читаемости
     if (details is Map || details is List) {
       try {
         return jsonEncode(details);
       } catch (_) {
+        // Если сериализация не удалась (циклические ссылки и т.д.), используем toString
         return details.toString();
       }
     }
+
     return details.toString();
   }
 }

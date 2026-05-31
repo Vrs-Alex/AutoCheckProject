@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import '../models/submission.dart'; // Модели: Assignment, CheckerConfig, enums
+import '../services/app_logger.dart'; // Сервис логирования
+import '../services/backend_repository.dart'; // Репозиторий для API запросов
+import '../theme/app_theme.dart'; // Цвета и стили
+import '../widgets/app_chrome.dart'; // Общая оболочка приложения
+import '../widgets/tech_components.dart'; // Кнопки, панели, лейблы
+import '../widgets/tech_icon.dart'; // Иконки
 
-import '../models/submission.dart';
-import '../services/app_logger.dart';
-import '../services/backend_repository.dart';
-import '../theme/app_theme.dart';
-import '../widgets/app_chrome.dart';
-import '../widgets/tech_components.dart';
-import '../widgets/tech_icon.dart';
-
+/// Экран создания нового тестового задания (Assignment).
+///
+/// Позволяет эксперту настроить параметры задания:
+/// 1. Метаданные (название, описание, технологии, инструкция).
+/// 2. Конфигурацию автоматических чекеров (включение/выключение, веса).
+/// 3. Сохранить как черновик или опубликовать сразу.
 class CreateAssignmentScreen extends StatefulWidget {
   const CreateAssignmentScreen({super.key});
 
@@ -17,19 +22,26 @@ class CreateAssignmentScreen extends StatefulWidget {
 
 class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
   final _repository = BackendRepository.instance;
+
+  // Контроллеры текстовых полей с предустановленными значениями-примерами
   final _title = TextEditingController(text: 'Mobile Clean Architecture Challenge');
   final _description = TextEditingController(text: 'Проверка мобильного проекта на архитектуру, сборку, тесты и документацию.');
   final _technologies = TextEditingController(text: 'Flutter, Kotlin, Android');
   final _instructions = TextEditingController(text: 'Загрузите ZIP проекта или ссылку на публичный Git-репозиторий. README и тесты обязательны.');
 
+  // Список конфигураций чекеров. Инициализируется дефолтными значениями.
   var _checkers = [...defaultCheckerConfig];
-  var _loading = false;
-  String? _error;
 
+  var _loading = false; // Флаг состояния загрузки (блокировка UI)
+  String? _error; // Текст ошибки валидации или ответа сервера
+
+  /// Вычисляет сумму весов всех включенных чекеров.
+  /// Используется для валидации (сумма должна быть ровно 100).
   int get _totalWeight => _checkers.where((item) => item.enabled).fold(0, (sum, item) => sum + item.weight);
 
   @override
   void dispose() {
+    // Освобождение ресурсов контроллеров при уничтожении виджета
     _title.dispose();
     _description.dispose();
     _technologies.dispose();
@@ -37,13 +49,18 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     super.dispose();
   }
 
+  /// Обновляет конфигурацию конкретного чекера в списке.
+  /// Создает новый список, заменяя старый объект на обновленный.
   void _updateChecker(CheckerName checker, CheckerConfig next) {
     setState(() {
       _checkers = _checkers.map((item) => item.checker == checker ? next : item).toList();
     });
   }
 
+  /// Отправляет данные на сервер для создания задания.
+  /// [status] определяет, будет ли задание сохранено как черновик или опубликовано.
   Future<void> _submit(AssignmentStatus status) async {
+    // --- Валидация на клиенте ---
     if (_title.text.trim().isEmpty) {
       setState(() => _error = 'Введите название задания');
       return;
@@ -52,30 +69,45 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
       setState(() => _error = 'Сумма весов активных чекеров должна быть 100%');
       return;
     }
+
+    // --- Подготовка к запросу ---
     setState(() {
       _error = null;
       _loading = true;
     });
+
     try {
+      // Логирование начала операции
       AppLogger.info('CreateAssignmentScreen', 'Assignment create started', {
         'title': _title.text.trim(),
         'totalWeight': _totalWeight,
       });
+
+      // Парсинг технологий из строки "A, B, C" в список ["A", "B", "C"]
+      final techList = _technologies.text.split(',').map((item) => item.trim()).where((item) => item.isNotEmpty).toList();
+
+      // Вызов метода репозитория для создания задания
       await _repository.createAssignment(
         checkerConfig: _checkers,
         description: _description.text.trim(),
         instructionsMarkdown: _instructions.text.trim(),
         status: status,
-        technologies: _technologies.text.split(',').map((item) => item.trim()).where((item) => item.isNotEmpty).toList(),
+        technologies: techList,
         title: _title.text.trim(),
       );
+
+      // Логирование успеха
       AppLogger.debug('CreateAssignmentScreen', 'Assignment create completed', {'status': status.name});
+
       if (!mounted) return;
+      // Возвращаемся назад, передавая true (успех)
       Navigator.of(context).pop(true);
     } catch (error) {
+      // Обработка ошибок сети или сервера
       AppLogger.error('CreateAssignmentScreen', 'Assignment create failed', error);
       setState(() => _error = error.toString().replaceFirst('Exception: ', ''));
     } finally {
+      // Снятие блокировки UI независимо от результата
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -83,54 +115,68 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
   @override
   Widget build(BuildContext context) {
     return AppChrome(
-      selected: 'create',
-      onDashboard: () => Navigator.of(context).pop(),
+      selected: 'create', // Подсветка пункта меню "Создать"
+      onDashboard: () => Navigator.of(context).pop(), // Клик по лого/дашборду закрывает экран
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TechLabel('Sprint-3 / assignment control'),
-          const SizedBox(height: 18),
+          TechLabel('Sprint-3 / assignment control'),
+          SizedBox(height: 18),
+
+          // Заголовок экрана
           Text('Создание тестового задания', style: Theme.of(context).textTheme.displayLarge),
-          const SizedBox(height: 20),
-          const Text('Настройте чекеры и веса. Backend принимает задание только при сумме 100%.', style: TextStyle(color: AppColors.muted)),
-          const SizedBox(height: 44),
+          SizedBox(height: 20),
+          Text('Настройте чекеры и веса. Backend принимает задание только при сумме 100%.', style: TextStyle(color: AppColors.muted)),
+          SizedBox(height: 44),
+
+          // --- Панель 1: Основные поля ---
           TechPanel(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _Field(label: 'Название задания', controller: _title),
-                const SizedBox(height: 18),
+                SizedBox(height: 18),
                 _Field(label: 'Технологии', controller: _technologies),
-                const SizedBox(height: 18),
+                SizedBox(height: 18),
                 _Field(label: 'Описание', controller: _description, lines: 4),
-                const SizedBox(height: 18),
+                SizedBox(height: 18),
                 _Field(label: 'Инструкция кандидату', controller: _instructions, lines: 5),
               ],
             ),
           ),
-          const SizedBox(height: 28),
+          SizedBox(height: 28),
+
+          // --- Панель 2: Чекеры и веса ---
           TechPanel(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const TechIcon(TechIconType.activity, color: AppColors.accent),
-                    const SizedBox(width: 12),
+                    TechIcon(TechIconType.activity, color: AppColors.accent),
+                    SizedBox(width: 12),
                     Expanded(child: Text('Чекеры и веса', style: Theme.of(context).textTheme.titleLarge)),
+                    // Индикатор суммы весов: зеленый если 100, красный если нет
                     Text('$_totalWeight%', style: TechText.monoValue.copyWith(fontSize: 24, color: _totalWeight == 100 ? AppColors.accent : AppColors.danger)),
                   ],
                 ),
-                const SizedBox(height: 22),
+                SizedBox(height: 22),
+
+                // Генерация списка строк чекеров
                 ..._checkers.map((item) => _CheckerRow(
                       config: item,
                       onChanged: (next) => _updateChecker(item.checker, next),
                     )),
+
+                // Блок ошибки (если есть)
                 if (_error != null) ...[
-                  const SizedBox(height: 18),
+                  SizedBox(height: 18),
                   _ErrorPanel(_error!),
                 ],
-                const SizedBox(height: 24),
+
+                SizedBox(height: 24),
+
+                // Кнопки действий
                 Wrap(
                   spacing: 12,
                   runSpacing: 12,
@@ -150,6 +196,12 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
   }
 }
 
+// ============================================================================
+// Внутренние виджеты экрана
+// ============================================================================
+
+/// Строка настройки одного чекера.
+/// Содержит чекбокс включения, название, текущий вес и слайдер регулировки.
 class _CheckerRow extends StatelessWidget {
   const _CheckerRow({required this.config, required this.onChanged});
 
@@ -159,8 +211,8 @@ class _CheckerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(color: AppColors.panelDeep, border: Border.all(color: AppColors.border)),
       child: Column(
         children: [
@@ -171,7 +223,7 @@ class _CheckerRow extends StatelessWidget {
                 activeColor: AppColors.accent,
                 onChanged: (value) => onChanged(config.copyWith(enabled: value ?? false)),
               ),
-              Expanded(child: Text(checkerLabel(config.checker), style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w800))),
+              Expanded(child: Text(checkerLabel(config.checker), style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w800))),
               Text('${config.weight}%', style: TechText.label.copyWith(color: AppColors.accent)),
             ],
           ),
@@ -182,6 +234,7 @@ class _CheckerRow extends StatelessWidget {
             divisions: 100,
             activeColor: AppColors.accent,
             inactiveColor: AppColors.border,
+            // Слайдер активен только если чекер включен
             onChanged: config.enabled ? (value) => onChanged(config.copyWith(weight: value.round())) : null,
           ),
         ],
@@ -190,6 +243,7 @@ class _CheckerRow extends StatelessWidget {
   }
 }
 
+/// Универсальное поле ввода с лейблом.
 class _Field extends StatelessWidget {
   const _Field({required this.controller, required this.label, this.lines = 1});
 
@@ -203,15 +257,17 @@ class _Field extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TechLabel(label),
-        const SizedBox(height: 10),
+        SizedBox(height: 10),
         TextField(
           controller: controller,
           maxLines: lines,
-          style: const TextStyle(color: AppColors.text),
-          decoration: const InputDecoration(
+          style: TextStyle(color: AppColors.text),
+          decoration: InputDecoration(
             filled: true,
             fillColor: AppColors.panelDeep,
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: AppColors.border)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.zero, // Sharp corners
+                borderSide: BorderSide(color: AppColors.border)),
             focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: AppColors.accent)),
           ),
         ),
@@ -220,6 +276,7 @@ class _Field extends StatelessWidget {
   }
 }
 
+/// Панель отображения ошибки.
 class _ErrorPanel extends StatelessWidget {
   const _ErrorPanel(this.text);
 
@@ -229,9 +286,9 @@ class _ErrorPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(color: AppColors.danger.withOpacity(0.1), border: Border.all(color: AppColors.danger.withOpacity(0.35))),
-      child: Text(text, style: const TextStyle(color: Color(0xFFFF7A3D))),
+      child: Text(text, style: TextStyle(color: AppColors.orange)),
     );
   }
 }

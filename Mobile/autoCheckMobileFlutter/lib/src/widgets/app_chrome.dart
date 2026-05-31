@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../theme/app_theme.dart';
 import 'tech_background.dart';
 import 'tech_components.dart';
@@ -7,7 +6,7 @@ import 'tech_icon.dart';
 
 /// Общая оболочка приложения: sidebar, topbar, адаптивные отступы и фон.
 class AppChrome extends StatelessWidget {
-  const AppChrome({
+  AppChrome({
     required this.child,
     required this.onDashboard,
     this.onCreateAssignment,
@@ -32,9 +31,11 @@ class AppChrome extends StatelessWidget {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              // Определяем, является ли экран широким (десктоп/планшет)
               final wide = constraints.maxWidth >= 940;
               return Row(
                 children: [
+                  // Боковая панель отображается только на широких экранах
                   if (wide)
                     _SideRail(
                       onCreateAssignment: onCreateAssignment,
@@ -46,15 +47,18 @@ class AppChrome extends StatelessWidget {
                   Expanded(
                     child: Column(
                       children: [
+                        // Верхняя панель
                         _TopBar(wide: wide),
                         Expanded(
                           child: SingleChildScrollView(
+                            // Адаптивные отступы в зависимости от ширины экрана
                             padding: EdgeInsets.symmetric(
                               horizontal: wide ? 40 : 16,
                               vertical: wide ? 56 : 34,
                             ),
                             child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 1180),
+                              // Ограничение максимальной ширины контента для удобства чтения
+                              constraints: BoxConstraints(maxWidth: 1180),
                               child: child,
                             ),
                           ),
@@ -72,8 +76,9 @@ class AppChrome extends StatelessWidget {
   }
 }
 
+// Боковая навигационная панель (сайдбар)
 class _SideRail extends StatelessWidget {
-  const _SideRail({
+  _SideRail({
     required this.onCreateAssignment,
     required this.onDashboard,
     required this.onStatistics,
@@ -91,8 +96,8 @@ class _SideRail extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 286,
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
+      padding: EdgeInsets.all(24),
+      decoration: BoxDecoration(
         color: AppColors.backgroundAlt,
         border: Border(
           right: BorderSide(color: AppColors.border),
@@ -101,6 +106,7 @@ class _SideRail extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Логотип и название приложения
           Row(
             children: [
               Container(
@@ -111,14 +117,14 @@ class _SideRail extends StatelessWidget {
                   color: AppColors.panel,
                   border: Border.all(color: AppColors.border),
                 ),
-                child: const TechIcon(
+                child: TechIcon(
                   TechIconType.clipboard,
                   color: AppColors.accent,
                   size: 24,
                 ),
               ),
-              const SizedBox(width: 12),
-              const Column(
+              SizedBox(width: 12),
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -135,21 +141,25 @@ class _SideRail extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 42),
-          const Divider(color: AppColors.border),
-          const SizedBox(height: 14),
-          const TechLabel('[ 55.7558 N, 37.6173 E ]'),
-          const SizedBox(height: 10),
+          SizedBox(height: 42),
+          Divider(color: AppColors.border),
+          SizedBox(height: 14),
+
+          // Декоративный блок статуса системы
+          TechLabel('[ 55.7558 N, 37.6173 E ]'),
+          SizedBox(height: 10),
           Row(
             children: [
               Container(height: 7, width: 7, color: AppColors.accent),
-              const SizedBox(width: 10),
-              const Text('Backend API online', style: TextStyle(color: AppColors.muted)),
+              SizedBox(width: 10),
+              Text('Backend API online', style: TextStyle(color: AppColors.muted)),
             ],
           ),
-          const SizedBox(height: 24),
-          const Divider(color: AppColors.border),
-          const SizedBox(height: 20),
+          SizedBox(height: 24),
+          Divider(color: AppColors.border),
+          SizedBox(height: 20),
+
+          // Пункты меню навигации
           _NavItem(
             active: selected == 'dashboard',
             icon: TechIconType.grid,
@@ -160,6 +170,7 @@ class _SideRail extends StatelessWidget {
             active: selected == 'upload',
             icon: TechIconType.upload,
             label: 'Загрузка',
+            // Если колбэк не передан, используется стандартная навигация
             onTap: onUploadSubmission ?? () => Navigator.of(context).pushNamed('/submissions/new'),
           ),
           _NavItem(
@@ -180,8 +191,9 @@ class _SideRail extends StatelessWidget {
   }
 }
 
+// Элемент пункта меню
 class _NavItem extends StatelessWidget {
-  const _NavItem({
+  _NavItem({
     required this.active,
     required this.icon,
     required this.label,
@@ -198,8 +210,8 @@ class _NavItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        margin: EdgeInsets.only(bottom: 10),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: active ? AppColors.panel : Colors.transparent,
           border: Border(
@@ -215,7 +227,7 @@ class _NavItem extends StatelessWidget {
         child: Row(
           children: [
             TechIcon(icon, color: active ? AppColors.text : AppColors.muted, size: 18),
-            const SizedBox(width: 14),
+            SizedBox(width: 14),
             Text(
               label.toUpperCase(),
               style: TextStyle(
@@ -233,8 +245,9 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+// Верхняя панель (TopBar)
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.wide});
+  _TopBar({required this.wide});
 
   final bool wide;
 
@@ -243,7 +256,7 @@ class _TopBar extends StatelessWidget {
     return Container(
       height: wide ? 72 : 64,
       padding: EdgeInsets.symmetric(horizontal: wide ? 32 : 16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Color(0xE608080C),
         border: Border(
           bottom: BorderSide(color: AppColors.border),
@@ -251,6 +264,7 @@ class _TopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Контент для мобильных устройств (кнопка меню и логотип)
           if (!wide) ...[
             Container(
               height: 38,
@@ -259,12 +273,12 @@ class _TopBar extends StatelessWidget {
               decoration: BoxDecoration(
                 border: Border.all(color: AppColors.border),
               ),
-              child: const TechIcon(TechIconType.menu, color: AppColors.muted, size: 19),
+              child: TechIcon(TechIconType.menu, color: AppColors.muted, size: 19),
             ),
-            const SizedBox(width: 14),
-            const TechIcon(TechIconType.clipboard, color: AppColors.accent, size: 22),
-            const SizedBox(width: 8),
-            const Text(
+            SizedBox(width: 14),
+            TechIcon(TechIconType.clipboard, color: AppColors.accent, size: 22),
+            SizedBox(width: 8),
+            Text(
               'AutoCheck',
               style: TextStyle(
                 color: AppColors.text,
@@ -273,15 +287,17 @@ class _TopBar extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-          ] else ...[
+          ]
+          // Контент для десктопа (поиск)
+          else ...[
             Container(
               width: 420,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: AppColors.panel,
                 border: Border.all(color: AppColors.border),
               ),
-              child: const Row(
+              child: Row(
                 children: [
                   TechIcon(TechIconType.search, color: AppColors.dim, size: 18),
                   SizedBox(width: 12),
@@ -292,9 +308,11 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ],
-          const Spacer(),
+          Spacer(),
+
+          // Профиль пользователя (справа)
           if (wide)
-            const Column(
+            Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -308,7 +326,9 @@ class _TopBar extends StatelessWidget {
                 TechLabel('expert@autocheck.local'),
               ],
             ),
-          const SizedBox(width: 14),
+          SizedBox(width: 14),
+
+          // Аватар пользователя
           Container(
             height: 40,
             width: 40,
@@ -317,7 +337,7 @@ class _TopBar extends StatelessWidget {
               color: AppColors.panel,
               border: Border.all(color: AppColors.border),
             ),
-            child: const Text(
+            child: Text(
               'A',
               style: TextStyle(
                 color: AppColors.accent,
@@ -326,11 +346,13 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 14),
-          const TechIcon(TechIconType.logout, color: AppColors.muted, size: 18),
+          SizedBox(width: 14),
+
+          // Кнопка выхода
+          TechIcon(TechIconType.logout, color: AppColors.muted, size: 18),
           if (wide) ...[
-            const SizedBox(width: 10),
-            const TechLabel('Выход'),
+            SizedBox(width: 10),
+            TechLabel('Выход'),
           ],
         ],
       ),

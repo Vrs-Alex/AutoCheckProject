@@ -1,4 +1,4 @@
-name: autocheck_flutter
+name: auto_check_mobile_flutter
 description: AutoCheck mobile dashboard demo with premium high-tech UI.
 publish_to: "none"
 version: 1.0.0+1
@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  file_picker: ^8.1.7
+
   flutter_svg: ^2.0.10+1
   http: ^1.2.2
 

@@ -1,50 +1,65 @@
 import 'package:flutter/material.dart';
-
 import '../theme/app_theme.dart';
 
+/// TechBackground: Глобальный фон приложения в стиле "Cyberpunk/Tech"
 class TechBackground extends StatelessWidget {
   const TechBackground({required this.child, super.key});
 
-  final Widget child;
+  final Widget child; // Контент, который будет отображаться поверх фона
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: AppColors.background,
+      color: AppColors.background, // Базовый цвет фона (обычно очень темный/черный)
       child: CustomPaint(
-        painter: _GridPainter(),
-        child: child,
+        painter: _GridPainter(), // Холст для отрисовки сетки и уголков
+        child: child, // Дочерние виджеты рендерятся поверх CustomPaint
       ),
     );
   }
 }
 
+/// _GridPainter: Кастомная отрисовка фоновых элементов
+///
+/// Использует Canvas API для высокопроизводительной отрисовки геометрических фигур,
+/// которые не требуют перерисовки при изменении состояния UI (shouldRepaint = false).
 class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
+    // Отрисовка сетки (Grid)
     final gridPaint = Paint()
       ..color = Colors.white.withOpacity(0.018)
       ..strokeWidth = 1;
 
-    const step = 56.0;
+    const step = 56.0; // Шаг ячейки сетки в пикселях
+
+    // Вертикальные линии
     for (var x = 0.0; x < size.width; x += step) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
     }
+
+    // Горизонтальные линии
     for (var y = 0.0; y < size.height; y += step) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
+    // Отрисовка декоративных уголков (Corners)
     final cornerPaint = Paint()
-      ..color = AppColors.accent.withOpacity(0.45)
+      ..color = AppColors.accent.withOpacity(0.45) // Акцентный цвет с прозрачностью
       ..strokeWidth = 1;
 
+    // Левый верхний угол
     canvas
-      ..drawLine(const Offset(18, 18), const Offset(60, 18), cornerPaint)
-      ..drawLine(const Offset(18, 18), const Offset(18, 60), cornerPaint)
-      ..drawLine(Offset(size.width - 18, size.height - 18), Offset(size.width - 60, size.height - 18), cornerPaint)
-      ..drawLine(Offset(size.width - 18, size.height - 18), Offset(size.width - 18, size.height - 60), cornerPaint);
+      ..drawLine(const Offset(18, 18), const Offset(60, 18), cornerPaint) // Горизонтальная часть
+      ..drawLine(const Offset(18, 18), const Offset(18, 60), cornerPaint); // Вертикальная часть
+
+    // Правый нижний угол
+    canvas
+      ..drawLine(Offset(size.width - 18, size.height - 18), Offset(size.width - 60, size.height - 18), cornerPaint) // Горизонтальная часть
+      ..drawLine(Offset(size.width - 18, size.height - 18), Offset(size.width - 18, size.height - 60), cornerPaint); // Вертикальная часть
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+// Возвращает false, так как фон статичен и не зависит от внешних данных.
 }

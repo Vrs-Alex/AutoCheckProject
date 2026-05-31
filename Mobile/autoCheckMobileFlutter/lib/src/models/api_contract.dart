@@ -236,6 +236,12 @@ class ApiStatsDto {
   }
 }
 
+/// Преобразует значение в int или null.
+/// Поддерживает:
+/// - null -> null
+/// - int -> само значение
+/// - double -> округленное значение (round)
+/// - String/другие типы -> попытка парсинга через int.tryParse
 int? _intOrNull(Object? value) {
   if (value == null) return null;
   if (value is int) return value;
@@ -243,6 +249,9 @@ int? _intOrNull(Object? value) {
   return int.tryParse(value.toString());
 }
 
+/// Преобразует значение в DateTime или null.
+/// Использует DateTime.tryParse для обработки строковых представлений дат.
+/// Возвращает null, если значение пустое или некорректное.
 DateTime? _dateOrNull(Object? value) {
   if (value == null) return null;
   final text = value.toString();
@@ -250,46 +259,62 @@ DateTime? _dateOrNull(Object? value) {
   return DateTime.tryParse(text);
 }
 
+/// Преобразует значение в непустую строку или null.
+/// Если значение null или пустая строка после конвертации — возвращает null.
 String? jsonStringOrNull(Object? value) {
   if (value == null) return null;
   final text = value.toString();
   return text.isEmpty ? null : text;
 }
 
+/// Определяет статус отправки (SubmissionStatus) на основе строкового статуса и балла.
+/// Логика:
+/// - PENDING/RUNNING/ERROR -> соответствующие статусы
+/// - DONE -> если score >= 60, то passed, иначе failed
+/// - неизвестный статус -> error
 SubmissionStatus _submissionStatus(String status, int? score) {
   return switch (status) {
     'PENDING' => SubmissionStatus.pending,
     'RUNNING' => SubmissionStatus.running,
-    'ERROR' => SubmissionStatus.error,
-    'DONE' => score != null && score >= 60 ? SubmissionStatus.passed : SubmissionStatus.failed,
-    _ => SubmissionStatus.error,
+    'ERROR'   => SubmissionStatus.error,
+  // Статус DONE требует проверки балла для определения успеха
+    'DONE'    => score != null && score >= 60
+        ? SubmissionStatus.passed
+        : SubmissionStatus.failed,
+    _         => SubmissionStatus.error,
   };
 }
 
+/// Преобразует строковый вердикт в enum Verdict.
+/// Используется для отображения результата проверки кода или задания.
 Verdict _verdict(String? verdict) {
   return switch (verdict) {
     'ACCEPTED' => Verdict.accepted,
     'REJECTED' => Verdict.rejected,
-    _ => Verdict.none,
+    _          => Verdict.none, // Для null или неизвестных значений
   };
 }
 
+/// Преобразует строковый статус чекера в enum CheckerStatus.
+/// Отражает текущее состояние процесса автоматической проверки.
 CheckerStatus _checkerStatus(String status) {
   return switch (status) {
     'PENDING' => CheckerStatus.pending,
     'RUNNING' => CheckerStatus.running,
-    'PASSED' => CheckerStatus.passed,
-    'FAILED' => CheckerStatus.failed,
-    _ => CheckerStatus.error,
+    'PASSED'  => CheckerStatus.passed,
+    'FAILED'  => CheckerStatus.failed,
+    _         => CheckerStatus.error,
   };
 }
 
+/// Возвращает человеко-читаемое сообщение для статуса чекера.
+/// Используется в UI для информирования пользователя о ходе проверки.
 String _checkerMessage(String status) {
   return switch (status) {
-    'PASSED' => 'Проверка успешно пройдена',
-    'FAILED' => 'Есть предупреждения',
+    'PASSED'  => 'Проверка успешно пройдена',
+    'FAILED'  => 'Есть предупреждения',
     'RUNNING' => 'Проверка выполняется',
     'PENDING' => 'Ожидает запуска',
-    _ => 'Ошибка выполнения чекера',
+    _         => 'Ошибка выполнения чекера',
   };
 }

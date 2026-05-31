@@ -1,19 +1,24 @@
 import 'package:flutter/material.dart';
 
-import '../models/submission.dart';
-import '../services/app_logger.dart';
-import '../services/formatters.dart';
-import '../services/backend_repository.dart';
-import '../theme/app_theme.dart';
-import '../widgets/app_chrome.dart';
-import '../widgets/tech_components.dart';
-import '../widgets/tech_icon.dart';
+import '../models/submission.dart'; // Модели данных
+import '../services/app_logger.dart'; // Сервис логирования
+import '../services/formatters.dart'; // Утилиты форматирования (даты, чисел)
+import '../services/backend_repository.dart'; // Репозиторий для API запросов
+import '../theme/app_theme.dart'; // Цвета и стили
+import '../widgets/app_chrome.dart'; // Общая оболочка приложения
+import '../widgets/tech_components.dart'; // Кнопки, панели, метрики
+import '../widgets/tech_icon.dart'; // Иконки
 import 'create_assignment_screen.dart';
 import 'statistics_screen.dart';
 import 'submission_details_screen.dart';
 import 'upload_submission_screen.dart';
 
-/// Главный экран эксперта: KPI, поиск и очередь проверок из backend.
+/// Главный экран эксперта (Dashboard).
+///
+/// Отображает:
+/// 1. KPI метрики (всего проверок, средний балл, процент прохождения).
+/// 2. Список последних отправок (Submissions) с возможностью поиска.
+/// 3. Быстрые действия: создание задания, загрузка решения, статистика.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -25,12 +30,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _repository = BackendRepository.instance;
   final _searchController = TextEditingController();
 
+  // Future для асинхронной загрузки данных дашборда
   late Future<_DashboardData> _future;
+
+  // Строка поискового запроса
   String _search = '';
 
   @override
   void initState() {
     super.initState();
+    // Запускаем загрузку данных при инициализации экрана
     _future = _load();
   }
 
@@ -40,12 +49,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  /// Загружает статистику и список отправок с бэкенда.
   Future<_DashboardData> _load() async {
     final stats = await _repository.stats();
     final submissions = await _repository.submissions();
     return _DashboardData(stats: stats, submissions: submissions);
   }
 
+  /// Открывает экран деталей конкретной отправки.
   void _openSubmission(Submission submission) {
     AppLogger.info('DashboardScreen', 'Submission row opened', {'submissionId': submission.id});
     Navigator.of(context).push(
@@ -55,30 +66,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  /// Открывает экран создания нового задания.
+  /// После возврата обновляет данные дашборда, если задание было успешно создано.
   Future<void> _openCreateAssignment() async {
     AppLogger.info('DashboardScreen', 'Create assignment screen opened');
     final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const CreateAssignmentScreen()),
+      MaterialPageRoute(builder: (_) => CreateAssignmentScreen()),
     );
     if (changed == true && mounted) {
-      setState(() => _future = _load());
+      setState(() => _future = _load()); // Перезагрузка данных
     }
   }
 
+  /// Открывает экран загрузки решения кандидатом.
   Future<void> _openUploadSubmission() async {
     AppLogger.info('DashboardScreen', 'Upload submission screen opened');
     final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const UploadSubmissionScreen()),
+      MaterialPageRoute(builder: (_) => UploadSubmissionScreen()),
     );
     if (changed == true && mounted) {
-      setState(() => _future = _load());
+      setState(() => _future = _load()); // Перезагрузка данных
     }
   }
 
+  /// Открывает экран общей статистики.
   Future<void> _openStatistics() async {
     AppLogger.info('DashboardScreen', 'Statistics screen opened');
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => const StatisticsScreen()),
+      MaterialPageRoute(builder: (_) => StatisticsScreen()),
     );
   }
 
@@ -86,52 +101,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return AppChrome(
       onDashboard: () {},
+      // Текущий экран уже дашборд
       onCreateAssignment: _openCreateAssignment,
       onStatistics: _openStatistics,
       onUploadSubmission: _openUploadSubmission,
       child: FutureBuilder<_DashboardData>(
         future: _future,
         builder: (context, snapshot) {
+          // Состояние загрузки или ошибки
           if (!snapshot.hasData) {
-            return const _LoadingPanel(label: 'Загружаем dashboard');
+            return _LoadingPanel(label: 'Загружаем dashboard');
           }
 
           final data = snapshot.data!;
+
+          // Фильтрация списка отправок по поисковому запросу
           final submissions = data.submissions.where((item) {
             final query = _search.toLowerCase();
             if (query.isEmpty) return true;
-            return item.candidateName.toLowerCase().contains(query) ||
-                item.candidateEmail.toLowerCase().contains(query) ||
-                item.assignmentTitle.toLowerCase().contains(query);
+            return item.candidateName.toLowerCase().contains(query) || item.candidateEmail.toLowerCase().contains(query) || item.assignmentTitle.toLowerCase().contains(query);
           }).toList();
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Верхний блок с приветствием и кнопками действий
               _HeroActions(
                 onCreate: _openCreateAssignment,
                 onUpload: _openUploadSubmission,
               ),
-              const SizedBox(height: 64),
+              SizedBox(height: 64),
+
+              // Сетка с KPI метриками
               _MetricGrid(stats: data.stats),
-              const SizedBox(height: 64),
+              SizedBox(height: 64),
+
+              // Панель со списком отправок (Queue Monitor)
               TechPanel(
-                padding: const EdgeInsets.all(32),
+                padding: EdgeInsets.all(32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const TechLabel('Queue monitor'),
-                    const SizedBox(height: 10),
+                    TechLabel('Queue monitor'),
+                    SizedBox(height: 10),
                     Text(
                       'Все проверки',
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                    const SizedBox(height: 26),
+                    SizedBox(height: 26),
+
+                    // Поле поиска
                     _SearchField(
                       controller: _searchController,
                       onChanged: (value) => setState(() => _search = value),
                     ),
-                    const SizedBox(height: 24),
+                    SizedBox(height: 24),
+
+                    // Список элементов (ограничен первыми 14 для производительности UI)
                     ...submissions.take(14).map(
                           (submission) => _SubmissionRow(
                             submission: submission,
@@ -149,6 +175,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+// ============================================================================
+// Внутренние виджеты дашборда
+// ============================================================================
+
+/// Верхний блок дашборда: заголовок, описание и кнопки действий.
+/// Адаптируется под ширину экрана (колонка на мобильных, строка на десктопе).
 class _HeroActions extends StatelessWidget {
   const _HeroActions({
     required this.onCreate,
@@ -163,6 +195,8 @@ class _HeroActions extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 760;
+
+        // Блок кнопок
         final actions = Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -181,17 +215,18 @@ class _HeroActions extends StatelessWidget {
           ],
         );
 
+        // Текстовый блок
         final copy = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const TechLabel('AutoCheck dashboard / expert node'),
-            const SizedBox(height: 18),
+            TechLabel('AutoCheck dashboard / expert node'),
+            SizedBox(height: 18),
             Text(
               'Панель управления',
               style: Theme.of(context).textTheme.displayLarge,
             ),
-            const SizedBox(height: 20),
-            const Text(
+            SizedBox(height: 20),
+            Text(
               'Контролируйте проверки, фильтруйте кандидатов и открывайте карточки результатов.',
               style: TextStyle(
                 color: AppColors.muted,
@@ -202,12 +237,13 @@ class _HeroActions extends StatelessWidget {
           ],
         );
 
+        // Адаптивная раскладка
         if (!wide) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               copy,
-              const SizedBox(height: 26),
+              SizedBox(height: 26),
               actions,
             ],
           );
@@ -217,7 +253,7 @@ class _HeroActions extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(child: copy),
-            const SizedBox(width: 32),
+            SizedBox(width: 32),
             actions,
           ],
         );
@@ -226,6 +262,8 @@ class _HeroActions extends StatelessWidget {
   }
 }
 
+/// Сетка карточек с метриками (KPI).
+/// Адаптирует количество колонок под ширину экрана (1, 2 или 4 колонки).
 class _MetricGrid extends StatelessWidget {
   const _MetricGrid({required this.stats});
 
@@ -236,11 +274,14 @@ class _MetricGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        // Определение количества колонок в зависимости от ширины
         final columns = width >= 980
             ? 4
             : width >= 620
                 ? 2
                 : 1;
+
+        // Расчет ширины одной карточки с учетом отступов
         final cardWidth = (width - (columns - 1) * 20) / columns;
 
         final cards = [
@@ -287,6 +328,7 @@ class _MetricGrid extends StatelessWidget {
   }
 }
 
+/// Поле поиска с иконкой лупы.
 class _SearchField extends StatelessWidget {
   const _SearchField({
     required this.controller,
@@ -301,8 +343,8 @@ class _SearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: const TextStyle(color: AppColors.text),
-      decoration: const InputDecoration(
+      style: TextStyle(color: AppColors.text),
+      decoration: InputDecoration(
         filled: true,
         fillColor: AppColors.panelDeep,
         hintText: 'Живой поиск по ФИО, email или заданию',
@@ -313,7 +355,7 @@ class _SearchField extends StatelessWidget {
         ),
         prefixIconConstraints: BoxConstraints(minWidth: 48),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.zero,
+          borderRadius: BorderRadius.zero, // Sharp corners
           borderSide: BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
@@ -325,6 +367,9 @@ class _SearchField extends StatelessWidget {
   }
 }
 
+/// Строка списка отправок (Submission Item).
+/// Отображает аватар, имя кандидата, название задания, статус и балл.
+/// Адаптируется под узкие экраны (вертикальная раскладка).
 class _SubmissionRow extends StatelessWidget {
   const _SubmissionRow({
     required this.onTap,
@@ -348,6 +393,8 @@ class _SubmissionRow extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compact = constraints.maxWidth < 680;
+
+            // Левая часть: Аватар + Инфо о кандидате
             final left = Row(
               children: [
                 Container(
@@ -360,29 +407,29 @@ class _SubmissionRow extends StatelessWidget {
                   ),
                   child: TechIcon(
                     TechIconType.user,
-                    color: scoreColor(submission.score),
+                    color: scoreColor(submission.score), // Цвет иконки зависит от балла
                     size: 22,
                   ),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         submission.candidateName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      SizedBox(height: 5),
                       Text(
                         '${submission.assignmentTitle} / ${submission.candidateEmail}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.muted),
+                        style: TextStyle(color: AppColors.muted),
                       ),
                     ],
                   ),
@@ -390,11 +437,12 @@ class _SubmissionRow extends StatelessWidget {
               ],
             );
 
+            // Правая часть: Статус + Балл + Стрелка
             final right = Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 StatusBadge(status: submission.status),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Text(
                   submission.score?.toString() ?? '--',
                   style: TextStyle(
@@ -404,17 +452,18 @@ class _SubmissionRow extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(width: 12),
-                const TechIcon(TechIconType.chevronRight, color: AppColors.muted, size: 18),
+                SizedBox(width: 12),
+                TechIcon(TechIconType.chevronRight, color: AppColors.muted, size: 18),
               ],
             );
 
+            // Адаптивная раскладка строки
             if (compact) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   left,
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   right,
                 ],
               );
@@ -423,12 +472,13 @@ class _SubmissionRow extends StatelessWidget {
             return Row(
               children: [
                 Expanded(child: left),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
+                // Дата создания (видна только на широких экранах)
                 Text(
                   formatDateTime(submission.createdAt),
                   style: TechText.label,
                 ),
-                const SizedBox(width: 24),
+                SizedBox(width: 24),
                 right,
               ],
             );
@@ -439,6 +489,7 @@ class _SubmissionRow extends StatelessWidget {
   }
 }
 
+/// Панель загрузки (Loader).
 class _LoadingPanel extends StatelessWidget {
   const _LoadingPanel({required this.label});
 
@@ -453,7 +504,7 @@ class _LoadingPanel extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(
+              SizedBox(
                 height: 18,
                 width: 18,
                 child: CircularProgressIndicator(
@@ -461,7 +512,7 @@ class _LoadingPanel extends StatelessWidget {
                   strokeWidth: 1.5,
                 ),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: 14),
               Text(label, style: const TextStyle(color: AppColors.muted)),
             ],
           ),
@@ -471,6 +522,7 @@ class _LoadingPanel extends StatelessWidget {
   }
 }
 
+/// Вспомогательный класс для хранения данных дашборда.
 class _DashboardData {
   const _DashboardData({
     required this.stats,

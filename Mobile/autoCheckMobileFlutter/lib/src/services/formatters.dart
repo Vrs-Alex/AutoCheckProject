@@ -1,3 +1,5 @@
+/// Форматирует дату и время в строку вида "ДД.ММ.ГГГГ ЧЧ:мм".
+/// Пример: 31.05.2026 14:30
 String formatDateTime(DateTime value) {
   final day = value.day.toString().padLeft(2, '0');
   final month = value.month.toString().padLeft(2, '0');
