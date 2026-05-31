@@ -30,7 +30,7 @@ class OpenAiAnalysisProvider(
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
     companion object {
-        private const val MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+        private const val MODEL = "meta-llama/llama-3.2-3b-instruct:free"
         private const val MAX_CODE_CHARS = 4000
     }
 
@@ -110,14 +110,20 @@ class OpenAiAnalysisProvider(
             .build()
 
         log.info("Calling AI provider model={} url={}", MODEL, aiProperties.baseUrl)
-        val response = http.send(request, HttpResponse.BodyHandlers.ofString())
 
-        if (response.statusCode() != 200) {
-            log.error("AI API error status={} body={}", response.statusCode(), response.body().take(200))
-            throw RuntimeException("AI API returned ${response.statusCode()}")
+        // Retry up to 3 times on 429 rate limit
+        repeat(3) { attempt ->
+            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() == 200) return response.body()
+            if (response.statusCode() == 429) {
+                log.warn("AI rate limited attempt={} — retrying in 3s", attempt + 1)
+                Thread.sleep(3000)
+            } else {
+                log.error("AI API error status={} body={}", response.statusCode(), response.body().take(200))
+                throw RuntimeException("AI API returned ${response.statusCode()}")
+            }
         }
-
-        return response.body()
+        throw RuntimeException("AI API rate limited after 3 attempts")
     }
 
     private fun parseResponse(apiResponse: String): AiReviewDto {
