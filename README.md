@@ -1,77 +1,75 @@
-# AutoCheckMobile — Backend
+# AutoCheckMobile
 
 Платформа автоматической проверки тестовых заданий мобильных разработчиков.  
 Конкурсный проект чемпионата «Профессионалы» 2026, г. Нижний Новгород.
 
 ---
 
-## Архитектура системы
+## Что это такое
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Клиенты                                  │
-│   Web Dashboard (Эксперт)        Mobile App / Flutter (Кандидат)│
-└──────────────┬──────────────────────────────┬───────────────────┘
-               │ REST API                      │ REST API
-               ▼                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Backend API  :8080                           │
-│  Spring Boot 3 + Kotlin  ·  JWT Auth  ·  OpenAPI / Swagger     │
-│                                                                 │
-│  AuthController  AssignmentController  SubmissionController     │
-│  CandidateController  ReportController                          │
-└──────────┬──────────────────────────────────┬───────────────────┘
-           │ JPA                              │ BLPOP
-           ▼                                  ▼
-┌──────────────────┐              ┌──────────────────────────────┐
-│   PostgreSQL 16  │              │          Redis 7             │
-│  users           │              │  submission:queue (FIFO)     │
-│  assignments     │              │  jwt:blacklist               │
-│  submissions     │              └──────────────┬───────────────┘
-│  check_results   │                             │ dequeue
-└──────────────────┘              ┌──────────────▼───────────────┐
-                                  │          Worker              │
-                                  │  SubmissionWorkerService     │
-                                  │  CheckOrchestrator           │
-                                  └──────────────┬───────────────┘
-                                                 │ docker run
-                          ┌──────────────────────▼───────────────────────┐
-                          │         Checker Containers (изолированно)    │
-                          │                                               │
-                          │  ┌──────────┐ ┌──────┐ ┌──────────────────┐ │
-                          │  │ StaticAn.│ │ Arch.│ │ Build / Tests    │ │
-                          │  │ --mem    │ │ --mem│ │ --mem 512m       │ │
-                          │  │ 512m     │ │ 512m │ │ --cpus 1         │ │
-                          │  └──────────┘ └──────┘ └──────────────────┘ │
-                          │  Каждый: autocheck-checker:latest            │
-                          │  Таймаут: 3 минуты · Результат → JSON stdout │
-                          └───────────────────────────────────────────────┘
-```
-
----
-
-## Стек технологий
-
-| Компонент | Технология |
-|---|---|
-| Backend | Spring Boot 3.4.5, Kotlin, Java 21 |
-| База данных | PostgreSQL 16 |
-| Очередь / кэш | Redis 7 |
-| Миграции | Flyway |
-| Аутентификация | JWT (jjwt), Redis blacklist |
-| Контейнеризация | Docker, Docker Compose |
-| Checker-контейнеры | eclipse-temurin:21-jdk-alpine + Python 3 + git |
-| API документация | SpringDoc OpenAPI (Swagger UI) |
-| Сериализация | Jackson (NON_NULL, ISO-8601 даты) |
+AutoCheckMobile — система, которая автоматически проверяет код кандидата на должность мобильного разработчика. Эксперт создаёт тестовое задание, кандидат загружает решение (ZIP-архив или Git URL), система автоматически анализирует код по нескольким критериям и выставляет балл. Эксперт видит детальный отчёт и выносит финальный вердикт.
 
 ---
 
 ## Роли пользователей
 
-| Роль | Возможности |
+| Роль | Платформа | Возможности |
+|---|---|---|
+| **Эксперт** | Веб (браузер) | Создаёт тестовые задания, настраивает чекеры и веса, просматривает все проверки, выносит вердикт ACCEPTED / REJECTED, смотрит статистику |
+| **Кандидат** | Мобильное приложение (Flutter) | Регистрируется, загружает решение задания, отслеживает статус проверки, смотрит результаты |
+
+---
+
+## Архитектура системы
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Web Dashboard (React)          Mobile App (Flutter)        │
+│  Эксперт                        Кандидат                   │
+└────────────────┬────────────────────────────┬──────────────┘
+                 │ HTTPS REST API              │ HTTPS REST API
+                 ▼                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│               Backend API  (Spring Boot + Kotlin)           │
+│                    https://hrmanager.vrsalex.ru             │
+└──────────┬──────────────────────────────┬───────────────────┘
+           │                              │
+    ┌──────▼──────┐              ┌────────▼────────┐
+    │ PostgreSQL  │              │     Redis       │
+    │  (данные)   │              │  (очередь+JWT)  │
+    └─────────────┘              └────────┬────────┘
+                                          │ очередь
+                                 ┌────────▼────────┐
+                                 │     Worker      │
+                                 │ CheckOrchestrator│
+                                 └────────┬────────┘
+                          ┌───────────────▼──────────────────┐
+                          │    Checker Containers (Docker)   │
+                          │  StaticAnalysis · Architecture   │
+                          │  Build · Tests · Documentation   │
+                          │  GitPractices                    │
+                          │  Каждый: изолирован, 512MB, 3мин │
+                          └──────────────────────────────────┘
+```
+
+---
+
+## Технологии
+
+| Компонент | Стек |
 |---|---|
-| **EXPERT** | Создаёт задания, настраивает веса чекеров, просматривает все проверки, выносит вердикт ACCEPTED/REJECTED |
-| **CANDIDATE** | Загружает решение (ZIP или Git URL), просматривает только свои проверки |
+| Backend | Spring Boot 3.4.5, Kotlin, Java 21 |
+| База данных | PostgreSQL 16 |
+| Очередь / кэш | Redis 7 |
+| Миграции | Flyway |
+| Аутентификация | JWT + Redis blacklist |
+| Контейнеризация | Docker, Docker Compose |
+| Checker-контейнеры | eclipse-temurin:21-jdk-alpine + Python 3 + git |
+| API документация | Swagger UI / OpenAPI |
+| Web | React |
+| Mobile | Flutter |
+| AI-анализ | Groq API (llama-3.1-8b-instant) |
+| CI/CD | GitHub Actions |
 
 ---
 
@@ -90,55 +88,100 @@
 
 Итоговый балл: `Σ(score_i × weight_i) / Σ(weight_i)`
 
-Каждый чекер:
-- Запускается в изолированном контейнере (`autocheck-checker:latest`)
-- Ограничен 512 МБ RAM и 1 CPU
-- Принудительно завершается через **3 минуты**
-- Отказ одного чекера не останавливает остальных
-
 ---
 
-## Формат API
+## Структура репозитория
 
-Все ответы обёрнуты в единый конверт:
-
-```json
-// Успех
-{"data": {"id": 1, "email": "expert@company.com"}}
-
-// Ошибка
-{"error": {"code": "NOT_FOUND", "message": "Задание 5 не найдено"}}
-
-// Ошибки валидации (422)
-{"error": {"code": "VALIDATION_ERROR", "message": "Ошибка валидации",
-  "details": {"email": "Некорректный email"}}}
+```
+AutoCheckMobile/
+├── Backend/
+│   └── auth-check/           # Spring Boot бэкенд
+│       ├── src/
+│       ├── checker-scripts/  # Python-скрипты чекеров
+│       ├── Dockerfile
+│       ├── Dockerfile.worker
+│       ├── checker.Dockerfile
+│       ├── docker-compose.yml
+│       └── .env.example
+├── Web/
+│   └── autoCheckMobileReact/ # React веб-дашборд
+└── Mobile/                   # Flutter мобильное приложение
 ```
 
-Swagger UI: `http://localhost:8080/api/swagger-ui.html`  
-OpenAPI JSON: `http://localhost:8080/api/docs`
-
 ---
 
-## Быстрый старт (локально)
+## Запуск бэкенда
 
-### Зависимости
+### Требования
 - Docker и Docker Compose
 
-### Запуск
+### 1. Клонировать репозиторий
 
 ```bash
-git clone <repo-url>
-cd auth-check
+git clone https://github.com/Vrs-Alex/AutoCheckMobile.git
+cd AutoCheckMobile/Backend/auth-check
+```
 
+### 2. Создать файл с переменными окружения
+
+```bash
 cp .env.example .env
-# При необходимости отредактируй .env
+nano .env
+```
 
+Заполнить:
+
+```env
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+JWT_SECRET=минимум_32_символа_случайная_строка
+AI_API_KEY=ваш_ключ_groq_или_openai
+AI_BASE_URL=https://api.groq.com/openai
+APP_URL=http://localhost:8080
+DOCKER_UPLOADS_VOLUME=auth-check_uploads_data
+CHECKER_IMAGE=autocheck-checker:latest
+```
+
+### 3. Запустить
+
+```bash
 sudo docker compose up --build -d
 ```
 
-Сервис будет доступен на `http://localhost:8080`.
+Первый запуск занимает 3–5 минут (скачиваются образы, компилируется проект).
 
-### Остановка
+### 4. Проверить
+
+```bash
+sudo docker compose ps
+curl http://localhost:8080/api/docs
+```
+
+### Что запускается
+
+| Контейнер | Роль | Порт |
+|---|---|---|
+| `backend` | REST API | 8080 |
+| `worker` | Обработка очереди, запуск чекеров | — |
+| `database` | PostgreSQL | внутренний |
+| `redis` | Очередь задач + JWT blacklist | внутренний |
+| `checker-runner` | Сборка образа для чекеров, сразу выходит | — |
+
+### Ссылки после запуска
+
+```
+Swagger UI:  http://localhost:8080/api/swagger-ui.html
+OpenAPI:     http://localhost:8080/api/docs
+```
+
+### Обновить после изменений в коде
+
+```bash
+git pull
+sudo docker compose up --build -d
+```
+
+### Остановить
 
 ```bash
 sudo docker compose down
@@ -146,80 +189,103 @@ sudo docker compose down
 
 ---
 
-## Переменные окружения
+## Запуск веб-дашборда (React)
 
-Создай файл `.env` в корне проекта (см. `.env.example`):
+### Требования
+- Node.js 20+
 
-| Переменная | Описание | По умолчанию |
-|---|---|---|
-| `DB_USERNAME` | Пользователь PostgreSQL | `postgres` |
-| `DB_PASSWORD` | Пароль PostgreSQL | `postgres` |
-| `JWT_SECRET` | Секрет для подписи JWT (мин. 32 символа) | небезопасный дефолт |
-| `AI_API_KEY` | API ключ для LLM (OpenAI-совместимый) | пусто |
-| `AI_BASE_URL` | Base URL LLM API | `https://api.openai.com` |
-| `APP_URL` | Публичный URL сервиса | `http://localhost:8080` |
-| `UPLOADS_DIR` | Директория для ZIP файлов | `/app/uploads` |
-| `DOCKER_UPLOADS_VOLUME` | Имя Docker volume с uploads | `auth-check_uploads_data` |
-| `CHECKER_IMAGE` | Docker образ для чекеров | `autocheck-checker:latest` |
-
----
-
-## Развёртывание на VPS / облаке
+### Локальная разработка
 
 ```bash
-# 1. Клонируй репозиторий на сервер
-git clone <repo-url>
-cd auth-check
+cd Web/autoCheckMobileReact
+npm install
+npm run dev
+# Открыть http://localhost:5173
+```
 
-# 2. Заполни переменные окружения
-cp .env.example .env
-nano .env  # укажи JWT_SECRET, пароли и т.д.
+### Продакшен
 
-# 3. Собери и запусти
-sudo docker compose up --build -d
+```bash
+cd Web/autoCheckMobileReact
+npm install
+npm run build
+```
 
-# 4. Проверь что всё запущено
-sudo docker compose ps
-sudo docker compose logs backend --tail=50
+После сборки папка `dist/` содержит готовые статические файлы.
+
+### Обновить после изменений в коде
+
+```bash
+git pull
+cd Web/autoCheckMobileReact
+npm install
+npm run build
 ```
 
 ---
 
-## Структура проекта
+## Деплой на VPS (продакшен)
 
-```
-src/main/kotlin/com/team/auth_check/
-├── domain/
-│   ├── model/          # Чистые data class: User, Assignment, Submission, CheckResult
-│   ├── repository/     # Интерфейсы репозиториев (без Spring/JPA)
-│   └── checker/        # IChecker, CheckContext, CheckerResult
-├── application/
-│   ├── dto/            # DTO запросов/ответов, ApiResponse<T>
-│   ├── service/        # AuthService, AssignmentService, SubmissionService и др.
-│   └── checker/        # CheckOrchestrator, DockerCheckerRunner, Worker, Queue
-├── infrastructure/
-│   ├── persistence/    # JPA entities, repositories, mappers
-│   ├── security/       # JwtService, JwtAuthFilter, SecurityConfig
-│   ├── storage/        # FileStorageService (ZIP save/extract)
-│   └── config/         # AppConfig, OpenApiConfig
-└── presentation/
-    ├── controller/     # 5 REST контроллеров
-    └── advice/         # GlobalExceptionHandler
+```bash
+# 1. Установить Docker
+curl -fsSL https://get.docker.com | sh
 
-checker-scripts/        # Python-скрипты для checker-контейнеров
-checker.Dockerfile      # Образ для checker-контейнеров
-Dockerfile              # Образ backend/api
-Dockerfile.worker       # Образ worker (+ docker-cli)
-docker-compose.yml      # Все сервисы: db, redis, backend, worker, checker-runner
+# 2. Клонировать
+git clone https://github.com/Vrs-Alex/AutoCheckMobile.git
+cd AutoCheckMobile/Backend/auth-check
+
+# 3. Настроить окружение
+cp .env.example .env
+nano .env
+
+# 4. Запустить бэкенд
+sudo docker compose up --build -d
+
+# 5. Собрать React
+cd ../../Web/autoCheckMobileReact
+npm install && npm run build
+# скопировать dist/ в папку nginx
 ```
+
+Система доступна по адресу: **https://hrmanager.vrsalex.ru**
+
+---
+
+## Формат API
+
+Все ответы в едином формате:
+
+```json
+{ "data": { ... } }
+{ "error": { "code": "NOT_FOUND", "message": "..." } }
+{ "error": { "code": "VALIDATION_ERROR", "message": "...", "details": { "field": "msg" } } }
+```
+
+Авторизация: `Authorization: Bearer <token>` на все эндпоинты кроме `/auth/login` и `/auth/register`.
+
+Полная документация: `/api/swagger-ui.html`
 
 ---
 
 ## CI/CD
 
-GitHub Actions pipeline запускается при каждом пуше:
-- Компиляция Kotlin
-- Запуск unit-тестов
-- Сборка Docker образа
+При каждом пуше в любую ветку GitHub Actions автоматически:
+1. Компилирует Kotlin
+2. Запускает тесты
+3. Проверяет сборку Docker образа
 
-Конфигурация: `.github/workflows/ci.yml`
+Статус виден во вкладке **Actions** репозитория.
+
+---
+
+## Переменные окружения
+
+| Переменная | Описание |
+|---|---|
+| `DB_USERNAME` / `DB_PASSWORD` | Доступ к PostgreSQL |
+| `JWT_SECRET` | Секрет подписи токенов (мин. 32 символа) |
+| `AI_API_KEY` | Ключ LLM API (Groq / OpenAI) |
+| `AI_BASE_URL` | Base URL провайдера (`https://api.groq.com/openai`) |
+| `APP_URL` | Публичный URL сервиса |
+| `DOCKER_UPLOADS_VOLUME` | Имя Docker volume для загрузок |
+| `CHECKER_IMAGE` | Docker образ для чекеров |
