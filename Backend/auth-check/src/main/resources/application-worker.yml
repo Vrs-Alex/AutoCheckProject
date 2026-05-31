@@ -1,0 +1,4 @@
+# Worker profile: disables HTTP server, enables only the queue listener
+spring:
+  main:
+    web-application-type: none

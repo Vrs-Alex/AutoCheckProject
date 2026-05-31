@@ -1,0 +1,111 @@
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: autocheck
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - autocheck-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d autocheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (task queue + token blacklist) ───────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --loglevel warning --save 60 1
+    volumes:
+      - redis_data:/data
+    networks:
+      - autocheck-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Checker image (built during compose up, not started as a service) ─────────
+  checker-runner:
+    build:
+      context: .
+      dockerfile: checker.Dockerfile
+    image: autocheck-checker:latest
+    command: ["/bin/sh", "-c", "echo 'Checker image ready'"]
+    restart: "no"
+
+  # ── Backend API ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: api
+      DATABASE_URL: jdbc:postgresql://database:5432/autocheck
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-32-chars!!}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - autocheck-net
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Worker (queue processor + checker engine) ─────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    user: root  # required for Docker socket access
+    environment:
+      SPRING_PROFILES_ACTIVE: worker
+      DATABASE_URL: jdbc:postgresql://database:5432/autocheck
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-32-chars!!}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com}
+      DOCKER_UPLOADS_VOLUME: auth-check_uploads_data
+      CHECKER_IMAGE: autocheck-checker:latest
+    volumes:
+      - uploads_data:/app/uploads
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - autocheck-net
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      checker-runner:
+        condition: service_completed_successfully
+
+networks:
+  autocheck-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:

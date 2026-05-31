@@ -1,0 +1,1065 @@
+openapi: 3.0.3
+info:
+  title: AutoCheck API
+  version: v1
+  description: |
+    REST API платформы автоматической проверки тестовых заданий разработчиков.
+
+    ## Роли
+    - **EXPERT** — создаёт задания, видит все проверки, выносит вердикт
+    - **CANDIDATE** — загружает решение, видит только свои проверки
+
+    ## Авторизация
+    Все эндпоинты кроме `/auth/login` и `/auth/register` требуют заголовок:
+    ```
+    Authorization: Bearer <token>
+    ```
+
+    ## Формат ответов
+    Все ответы завёрнуты в единый конверт `{data, error, meta}`.
+    Null-поля **не включаются** в ответ (NON_NULL Jackson).
+    - **Успех**: `{"data": {...}}`
+    - **Ошибка**: `{"error": {"code": "...", "message": "..."}}`
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Регистрация, вход, выход
+  - name: Assignments
+    description: CRUD тестовых заданий
+  - name: Submissions
+    description: Загрузка решений, статусы, результаты, вердикт
+  - name: Candidates
+    description: Список кандидатов (только EXPERT)
+  - name: Reports
+    description: Статистика (только EXPERT)
+
+paths:
+
+  # ── Auth ──────────────────────────────────────────────────────────────────────
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход в систему
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: expert@company.com
+              password: secret123
+      responses:
+        '200':
+          description: JWT токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponseEnvelope'
+              example:
+                data:
+                  token: eyJhbGciOiJIUzI1NiJ9...
+                  expiresIn: 86400000
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация нового пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: candidate@mail.ru
+              password: secret123
+              fullName: Иванов Иван Иванович
+              role: CANDIDATE
+      responses:
+        '201':
+          description: Пользователь создан, JWT токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponseEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход — токен инвалидируется в Redis
+      responses:
+        '200':
+          description: Выход выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+              example: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/profile:
+    get:
+      tags: [Auth]
+      summary: Профиль текущего пользователя
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileEnvelope'
+              example:
+                data:
+                  id: 1
+                  email: expert@company.com
+                  fullName: Иванов Иван Иванович
+                  role: EXPERT
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Assignments ───────────────────────────────────────────────────────────────
+
+  /assignments:
+    get:
+      tags: [Assignments]
+      summary: Список всех тестовых заданий
+      responses:
+        '200':
+          description: Список заданий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentListEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Assignments]
+      summary: Создать задание (только EXPERT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssignmentRequest'
+            example:
+              title: Android-задание №1
+              description: Разработайте список контактов с MVVM архитектурой
+              checkerWeights:
+                STATIC_ANALYSIS: 20
+                BUILD: 20
+                TESTS: 20
+                ARCHITECTURE: 15
+                DOCUMENTATION: 15
+                GIT_PRACTICES: 10
+      responses:
+        '201':
+          description: Задание создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /assignments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+
+    get:
+      tags: [Assignments]
+      summary: Задание по ID
+      responses:
+        '200':
+          description: Задание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Assignments]
+      summary: Редактировать задание (только EXPERT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssignmentRequest'
+      responses:
+        '200':
+          description: Обновлённое задание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Assignments]
+      summary: Удалить задание (только EXPERT)
+      description: Возвращает 409 если к заданию привязаны проверки.
+      responses:
+        '200':
+          description: Удалено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ── Submissions ───────────────────────────────────────────────────────────────
+
+  /submissions:
+    post:
+      tags: [Submissions]
+      summary: Загрузить решение (ZIP или Git URL)
+      description: |
+        Принимает `multipart/form-data`.
+        Нужно передать **одно из двух**: `file` (ZIP) или `gitUrl`.
+
+        **EXPERT** дополнительно передаёт `candidateEmail` (обязательно) и опционально `candidateFullName`.
+        **CANDIDATE** отправляет от своего имени — `candidateEmail` не нужен.
+
+        После загрузки движок проверки запускается автоматически в фоне.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [assignmentId]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ZIP-архив с кодом
+                gitUrl:
+                  type: string
+                  example: https://github.com/candidate/solution
+                assignmentId:
+                  type: string
+                  example: "1"
+                candidateEmail:
+                  type: string
+                  description: Только для EXPERT
+                  example: candidate@mail.ru
+                candidateFullName:
+                  type: string
+                  description: Только для EXPERT (если кандидата нет в БД — создаётся автоматически)
+                  example: Иванов Иван Иванович
+      responses:
+        '201':
+          description: Проверка создана и поставлена в очередь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      tags: [Submissions]
+      summary: Список проверок
+      description: EXPERT видит все проверки. CANDIDATE — только свои.
+      parameters:
+        - name: assignmentId
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: Фильтр по заданию (только для EXPERT)
+      responses:
+        '200':
+          description: Список проверок
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionListEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /submissions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+
+    get:
+      tags: [Submissions]
+      summary: Проверка по ID
+      description: CANDIDATE может получить только свою проверку.
+      responses:
+        '200':
+          description: Проверка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /submissions/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Submissions]
+      summary: Текущий статус проверки (для polling)
+      description: Лёгкий эндпоинт — возвращает только статус и итоговый балл.
+      responses:
+        '200':
+          description: Статус
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionStatusEnvelope'
+              examples:
+                running:
+                  value:
+                    data:
+                      id: 1
+                      status: RUNNING
+                done:
+                  value:
+                    data:
+                      id: 1
+                      status: DONE
+                      totalScore: 72.5
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /submissions/{id}/results:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Submissions]
+      summary: Детальные результаты всех чекеров
+      responses:
+        '200':
+          description: Список результатов по чекерам
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckResultListEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /submissions/{id}/rerun:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Submissions]
+      summary: Повторный запуск проверки (только EXPERT)
+      responses:
+        '200':
+          description: Проверка перезапущена (статус сброшен в PENDING)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /submissions/{id}/verdict:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Submissions]
+      summary: Вынести вердикт ACCEPTED / REJECTED (только EXPERT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerdictRequest'
+            example:
+              verdict: ACCEPTED
+              comment: Хорошая архитектура, но нет unit-тестов
+      responses:
+        '200':
+          description: Вердикт сохранён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /submissions/{id}/report:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Submissions]
+      summary: JSON-отчёт по проверке
+      description: Возвращает полный объект Submission с вердиктом и баллом.
+      responses:
+        '200':
+          description: Отчёт
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /submissions/{id}/ai-review:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Submissions]
+      summary: AI-анализ кода кандидата (Sprint-4)
+      description: |
+        Возвращает текстовый разбор кода от LLM.
+        Если AI-ключ не задан или LLM недоступен — `available: false`.
+      responses:
+        '200':
+          description: AI-анализ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiReviewEnvelope'
+              examples:
+                unavailable:
+                  value:
+                    data:
+                      available: false
+                available:
+                  value:
+                    data:
+                      available: true
+                      summary: Код соответствует архитектурным требованиям...
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Candidates ────────────────────────────────────────────────────────────────
+
+  /candidates:
+    get:
+      tags: [Candidates]
+      summary: Список всех кандидатов (только EXPERT)
+      responses:
+        '200':
+          description: Список кандидатов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateListEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /candidates/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Candidates]
+      summary: Кандидат по ID (только EXPERT)
+      responses:
+        '200':
+          description: Кандидат
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Reports ───────────────────────────────────────────────────────────────────
+
+  /reports/stats:
+    get:
+      tags: [Reports]
+      summary: Агрегированная статистика (только EXPERT)
+      description: Всего проверок, средний балл, % прохождения, динамика за 30 дней, топ-10 кандидатов.
+      responses:
+        '200':
+          description: Статистика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsEnvelope'
+              example:
+                data:
+                  totalSubmissions: 42
+                  averageScore: 67.4
+                  passRate: 78.5
+                  dailyCounts:
+                    - date: "2026-05-30"
+                      count: 5
+                  topCandidates:
+                    - candidateId: 3
+                      fullName: Иванов Иван Иванович
+                      bestScore: 94.5
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+# ── Components ────────────────────────────────────────────────────────────────
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  # ── Reusable responses ────────────────────────────────────────────────────────
+
+  responses:
+    Unauthorized:
+      description: Токен отсутствует, истёк или отозван
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Full authentication is required to access this resource
+    Forbidden:
+      description: Недостаточно прав (требуется роль EXPERT)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: FORBIDDEN
+              message: Нет прав доступа
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Задание 99 не найдено
+    ValidationError:
+      description: Ошибки валидации полей (422)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Ошибка валидации
+              details:
+                email: Некорректный email
+                password: Минимум 6 символов
+    BadRequest:
+      description: Некорректный запрос (400)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: BAD_REQUEST
+              message: Необходимо предоставить ZIP-файл или Git URL
+    Conflict:
+      description: Конфликт данных — нельзя удалить ресурс с зависимостями (409)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: CONFLICT
+              message: Операция нарушает целостность данных
+
+  # ── Schemas ───────────────────────────────────────────────────────────────────
+
+  schemas:
+
+    # ── Envelope base ─────────────────────────────────────────────────────────
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: NOT_FOUND
+        message:
+          type: string
+          example: Задание 5 не найдено
+        details:
+          type: object
+          additionalProperties:
+            type: string
+          description: Ошибки по полям — только при 422
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    EmptyEnvelope:
+      type: object
+      description: Пустой конверт — data и error отсутствуют (null поля не сериализуются)
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: expert@company.com
+        password:
+          type: string
+          example: secret123
+
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email:
+          type: string
+          format: email
+          example: candidate@mail.ru
+        password:
+          type: string
+          minLength: 6
+          example: secret123
+        fullName:
+          type: string
+          example: Иванов Иван Иванович
+        role:
+          type: string
+          enum: [EXPERT, CANDIDATE]
+          default: CANDIDATE
+
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Bearer token
+        expiresIn:
+          type: integer
+          format: int64
+          description: Время жизни токена в миллисекундах
+
+    TokenResponseEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/TokenResponse'
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [EXPERT, CANDIDATE]
+
+    UserProfileEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/UserProfile'
+
+    # ── Assignments ───────────────────────────────────────────────────────────
+
+    CreateAssignmentRequest:
+      type: object
+      required: [title, checkerWeights]
+      properties:
+        title:
+          type: string
+          example: Android-задание №1
+        description:
+          type: string
+        checkerWeights:
+          type: object
+          description: |
+            Веса чекеров. Допустимые ключи:
+            `STATIC_ANALYSIS`, `BUILD`, `TESTS`, `ARCHITECTURE`, `DOCUMENTATION`, `GIT_PRACTICES`.
+            Сумма значений должна равняться 100. Требуется минимум один ключ.
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 100
+          example:
+            STATIC_ANALYSIS: 20
+            BUILD: 20
+            TESTS: 20
+            ARCHITECTURE: 15
+            DOCUMENTATION: 15
+            GIT_PRACTICES: 10
+
+    Assignment:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        checkerWeights:
+          type: object
+          additionalProperties:
+            type: integer
+        createdBy:
+          type: integer
+          format: int64
+          description: ID эксперта-создателя
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AssignmentEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Assignment'
+
+    AssignmentListEnvelope:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assignment'
+
+    # ── Submissions ───────────────────────────────────────────────────────────
+
+    Submission:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        assignmentId:
+          type: integer
+          format: int64
+        assignmentTitle:
+          type: string
+        candidateId:
+          type: integer
+          format: int64
+        candidateFullName:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, RUNNING, DONE, ERROR]
+        totalScore:
+          type: number
+          format: double
+          description: Итоговый балл 0–100. Отсутствует пока проверка не завершена.
+        verdict:
+          type: string
+          enum: [ACCEPTED, REJECTED]
+          description: Отсутствует до вынесения вердикта экспертом.
+        verdictComment:
+          type: string
+          description: Отсутствует если комментарий не указан.
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          description: Отсутствует до завершения проверки.
+
+    SubmissionEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Submission'
+
+    SubmissionListEnvelope:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Submission'
+
+    SubmissionStatus:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [PENDING, RUNNING, DONE, ERROR]
+        totalScore:
+          type: number
+          format: double
+          description: Отсутствует пока статус не DONE.
+
+    SubmissionStatusEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/SubmissionStatus'
+
+    VerdictRequest:
+      type: object
+      required: [verdict]
+      properties:
+        verdict:
+          type: string
+          enum: [ACCEPTED, REJECTED]
+        comment:
+          type: string
+          example: Хорошая архитектура, но нет unit-тестов
+
+    AiReview:
+      type: object
+      required: [available]
+      properties:
+        available:
+          type: boolean
+          description: false если AI-ключ не задан или LLM вернул ошибку
+        summary:
+          type: string
+          description: Отсутствует если available=false
+        strengths:
+          type: array
+          items:
+            type: string
+        weaknesses:
+          type: array
+          items:
+            type: string
+        recommendations:
+          type: array
+          items:
+            type: string
+
+    AiReviewEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/AiReview'
+
+    # ── Check Results ─────────────────────────────────────────────────────────
+
+    CheckResult:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        checkerType:
+          type: string
+          enum: [STATIC_ANALYSIS, ARCHITECTURE, BUILD, TESTS, DOCUMENTATION, GIT_PRACTICES]
+        status:
+          type: string
+          enum: [PENDING, RUNNING, PASSED, FAILED, ERROR]
+        score:
+          type: number
+          format: double
+          description: Балл 0–100. Отсутствует при статусах PENDING/RUNNING/ERROR.
+        log:
+          type: string
+          description: Детальный лог выполнения чекера.
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          description: Отсутствует пока чекер не завершён.
+
+    CheckResultListEnvelope:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckResult'
+
+    # ── Candidates ────────────────────────────────────────────────────────────
+
+    Candidate:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        fullName:
+          type: string
+        submissionsCount:
+          type: integer
+        bestScore:
+          type: number
+          format: double
+          description: Лучший балл среди завершённых проверок. Отсутствует если проверок нет.
+
+    CandidateEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Candidate'
+
+    CandidateListEnvelope:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Candidate'
+
+    # ── Reports ───────────────────────────────────────────────────────────────
+
+    DailyCount:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-05-30"
+        count:
+          type: integer
+
+    TopCandidate:
+      type: object
+      properties:
+        candidateId:
+          type: integer
+          format: int64
+        fullName:
+          type: string
+        bestScore:
+          type: number
+          format: double
+
+    Stats:
+      type: object
+      properties:
+        totalSubmissions:
+          type: integer
+        averageScore:
+          type: number
+          format: double
+        passRate:
+          type: number
+          format: double
+          description: Процент проверок с вердиктом ACCEPTED (0–100)
+        dailyCounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyCount'
+          description: Количество проверок по дням за последние 30 дней
+        topCandidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopCandidate'
+          description: Топ-10 кандидатов по лучшему баллу
+
+    StatsEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Stats'
