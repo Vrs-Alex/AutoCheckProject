@@ -1,6 +1,7 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
 import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query'
 import type { RootState } from '../../app/store'
+import { appLogger } from '../lib/appLogger'
 
 const apiUrl = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -16,6 +17,15 @@ function isApiEnvelope(value: unknown): value is ApiEnvelope {
       typeof value === 'object' &&
       ('data' in value || 'error' in value || 'meta' in value),
   )
+}
+
+function requestLabel(args: string | FetchArgs) {
+  if (typeof args === 'string') {
+    return args
+  }
+
+  const method = args.method ?? 'GET'
+  return `${method} ${args.url}`
 }
 
 const rawBaseQuery = fetchBaseQuery({
@@ -34,10 +44,17 @@ const baseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> =
   api,
   extraOptions,
 ) => {
+  const endpoint = requestLabel(args)
+  appLogger.info('BaseApi', 'API request started', { endpoint })
+
   const result = await rawBaseQuery(args, api, extraOptions)
   if ('error' in result) {
+    appLogger.error('BaseApi', 'API request failed', { endpoint, error: result.error })
     return result
   }
+
+  appLogger.debug('BaseApi', 'API request completed', { endpoint })
+
   if (isApiEnvelope(result.data)) {
     return { ...result, data: result.data.data ?? null }
   }
@@ -46,6 +63,7 @@ const baseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> =
 
 /**
  * Назначение: общий RTK Query API client layer для всех запросов AutoCheck.
+ * Логирует старт, успешное завершение и ошибки запросов в едином формате.
  * Дата создания: 31-05-2026.
  * Автор: Команда.
  */

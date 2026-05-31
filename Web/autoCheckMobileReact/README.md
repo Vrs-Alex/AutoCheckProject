@@ -163,6 +163,13 @@ src/
 
 Правило проекта: server data хранится в RTK Query cache, локальное состояние фильтров и оболочки хранится в Redux slices, компоненты не вызывают `fetch` напрямую.
 
+## Логирование и комментарии
+
+- `src/shared/lib/appLogger.ts` — единый logger формата `[Component]: LEVEL Event — Details`.
+- `src/shared/api/baseApi.ts` логирует жизненный цикл каждого RTK Query запроса: старт, успешное завершение и ошибку.
+- Пользовательские действия `login/register/upload/rerun/verdict/create assignment/logout` дополнительно логируются на уровне страниц.
+- Верхнеуровневые компоненты, slices, API client и UI primitives имеют структурные комментарии: назначение, дата создания и автор команды.
+
 ## Проверка состояний
 
 - Loading: открыть любую страницу после refresh или на медленном Docker backend.
