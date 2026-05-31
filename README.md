@@ -111,7 +111,7 @@
 
 // Ошибки валидации (422)
 {"error": {"code": "VALIDATION_ERROR", "message": "Ошибка валидации",
-           "details": {"email": "Некорректный email"}}}
+  "details": {"email": "Некорректный email"}}}
 ```
 
 Swagger UI: `http://localhost:8080/api/swagger-ui.html`  
