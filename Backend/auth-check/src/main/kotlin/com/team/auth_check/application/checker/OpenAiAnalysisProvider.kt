@@ -30,7 +30,7 @@ class OpenAiAnalysisProvider(
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
     companion object {
-        private const val MODEL = "llama-3.1-8b-instant"
+        private const val MODEL = "meta-llama/llama-3.3-70b-instruct:free"
         private const val MAX_CODE_CHARS = 4000
     }
 
